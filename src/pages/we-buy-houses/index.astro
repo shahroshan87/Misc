@@ -1,0 +1,23 @@
+---
+import Base from '../../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+const counties = await getCollection('counties', (c) => c.data.status === 'published');
+const cities = await getCollection('cities', (c) => c.data.status === 'published');
+---
+<Base title="Areas We Buy Houses in DFW | Home Offer Solutions" description="See every Dallas–Fort Worth county and city where Home Offer Solutions buys houses for cash, as-is, with local knowledge and real closed deals nearby.">
+  <section class="mx-auto max-w-6xl px-4 py-12">
+    <h1 class="text-3xl font-bold">Areas we buy houses in DFW</h1>
+    <ul class="mt-6 space-y-4">
+      {counties.map((c) => (
+        <li>
+          <a class="font-semibold text-brand" href={`/we-buy-houses/${c.id}/`}>{c.data.name}</a>
+          <ul class="ml-4">
+            {cities.filter((ci) => ci.data.counties.some((r) => r.id === c.id)).map((ci) => (
+              <li><a href={`/we-buy-houses/${ci.id}/`}>{ci.data.name}</a></li>
+            ))}
+          </ul>
+        </li>
+      ))}
+    </ul>
+  </section>
+</Base>
