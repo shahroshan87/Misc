@@ -2,23 +2,24 @@
 
 This takes about 2–3 hours in total, and you can do it over a few days. Tell me in chat when each step is done, or if you get stuck.
 
-## 1. Find where your domain is registered (10 min)
-1. Search your email for "homeoffersolutions.com" plus words like "renewal", "invoice" or "domain".
-2. If you find nothing, the domain was probably bought through Carrot. Log in to Carrot and check **Settings → Domains**.
-3. Tell me three things: **where it's registered**, **the expiry date**, and **whether you can log in there**.
+## 1. Domain: answered (checked 2026-11-11)
+The domain is registered at **Squarespace Domains** and is paid through **August 20, 2027**. Nothing to do except confirm you can still log in at account.squarespace.com.
 
-## 2. Carrot (15 min). Do NOT cancel yet.
-1. Log in and check whether you're still being billed.
-2. Export your old leads (Carrot → Leads → Export).
+## 2. Carrot (10 min)
+The old Carrot site no longer loads, and your mailbox shows Carrot's payment notices stopping in February 2025.
+1. Log in once and confirm the account is closed and you're not being billed.
+2. If it still lets you in, export your old leads (Carrot → Leads → Export). If not, the old lead emails are still in your business mailbox.
 3. Write down the phone number shown on the old site, and check whether it's a Carrot or CallRail "tracking number". If it is, it stops working when Carrot is cancelled, so we'll choose a new permanent number first.
 
-## 3. Email on the domain (5 min)
-Do you receive email at an @homeoffersolutions.com address? Yes or no. If yes, we copy its settings before moving anything, so email keeps working.
+## 3. Email on the domain: answered
+Yes. The domain's mail runs on Google Workspace. I'll copy those settings before moving anything, so email keeps working.
 
 ## 4. Google Business Profile (10 min)
 1. Go to business.google.com and sign in with every Google account you might have used before.
-2. If a "Home Offer Solutions" profile exists, **don't create a new one**. We'll reclaim the old one, because duplicate profiles get suspended.
-3. Also check search.google.com/search-console to see whether the old site is listed there.
+2. A "Home Offer Solutions" profile already exists under your business Google account, so **don't create a new one**. Duplicate profiles get suspended.
+3. Google emailed in October 2026 asking you to confirm your business details. Open the profile and answer it.
+4. Tell me which address the profile was verified at. I won't publish it.
+5. Search Console already lists the old site under your account, so there's nothing to set up there.
 
 ## 5. Free accounts (30 min; I'll walk you through each one live)
 - Cloudflare (hosting)
@@ -55,9 +56,9 @@ Open the cloud environment menu in the session title bar → **Edit** → **Netw
 - `api.dataforseo.com`
 - `ssl.bing.com`
 - `web.archive.org`
-- `homeoffersolutions.com`
-- `www.homeoffersolutions.com`
 - `*.workers.dev`
+
+The two `homeoffersolutions.com` hosts were added on 2026-11-11.
 
 Optionally, also add the competitor sites listed in docs/01 so I can study them directly.
 

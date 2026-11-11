@@ -1,5 +1,7 @@
 # SEO & AI-Search Playbook (as of Sept 2026)
 
+> Re-checked 2026-11-11 for changes since June 2026. The dated list of changes is in [`07-status-2026-11.md`](07-status-2026-11.md) section 4. Corrections from that re-check are applied below.
+
 Claims are labeled by how well they're supported:
 - **[V]**: confirmed in 2026 sources.
 - **[S]**: a single source or vendor data.
@@ -15,9 +17,10 @@ Claims are labeled by how well they're supported:
 | Core | Mar 27 – Apr 8 | [V] |
 | Core | May 21 – Jun 2 | [V] |
 | Spam | Jun 24–26 | [V] |
-| Spam | **Aug 18–21** | Hit programmatic multi-location content and scaled AI content. Real estate volatility was about 75%. [V] |
+| Spam | **Aug 18–21** | Google named no target. Practitioner case studies describe programmatic and scaled AI content being hit. [S] An earlier "real estate volatility about 75%" figure could not be traced to a source and has been removed. |
+| Spam | **Sep 24 – Oct 8** | Fourth of the year, about 14 days. No target named. Practitioners report templated city and county pages among the sites hit. [S] |
 
-  Sources: [SEL](https://searchengineland.com/google-august-2026-spam-update-ranking-impact-485980), [GSQi case studies](https://www.gsqi.com/marketing-blog/august-2026-google-spam-update-case-studies/)
+  Sources: [SEL, August rollout](https://searchengineland.com/google-august-2026-spam-update-done-rolling-out-485471), [GSQi case studies](https://www.gsqi.com/marketing-blog/august-2026-google-spam-update-case-studies/), [SEL, September rollout](https://searchengineland.com/google-september-2026-spam-update-done-rolling-out-493550)
 - **March 2026 winners and losers:**
   - Winners: first-party sources, original data, first-hand case studies.
   - Losers: keyword-swapped templates.
@@ -32,7 +35,7 @@ Claims are labeled by how well they're supported:
   - Transactional searches ("we buy houses Dallas") still show the map pack.
 - **Bing Webmaster Tools AI Performance report:** free, covers Copilot citations (Feb 2026). [V]
 - **How AI assistants find sources:**
-  - ChatGPT: Bing plus its own index.
+  - ChatGPT: Bing plus its own index, and Yelp data under a licence announced Jul 23, 2026.
   - Claude: Brave Search.
   - Gemini: Google Maps data.
   - Perplexity: leans on Yelp and Reddit.
@@ -48,12 +51,14 @@ Claims are labeled by how well they're supported:
 - Never let AI invent "local facts".
 
 ## Local SEO
-- **Whitespark 2026 ranking factors:** GBP (Google Business Profile) 32%, reviews 20%, on-page 15%. A new "AI visibility" factor rewards "best of" list inclusion. [V/S]
+- **Whitespark 2026 ranking factors** (published Nov 2025)**:** GBP (Google Business Profile) 32%, reviews 20%, on-page 15%. A new "AI visibility" factor rewards "best of" list inclusion. [V/S]
 - **Reviews:** the ranking bump comes at about 10 reviews. After that, recency and review text matter more. [V, Sterling Sky]
 - **Hidden addresses:** service-area businesses with a hidden address rank worse than those showing a real address. [V]
 - **Suspension waves (Apr–May 2026):** the top trigger was keyword-stuffed business names. [S]
 - **Video verification** is now the default. [V/S]
 - **April 2026 review policy:** no incentives, no review gating, no asking customers to name a staff member, no employee quotas. [S]
+- **Review pacing (Sept 2026):** a burst of new reviews can trigger a multi-day pause on the profile, and appeals are slow. Ask one closing at a time. [S]
+- **Listing text (Oct 2026):** no promotions, pricing or calls to action in listing fields; no phone numbers, emails or social links in Posts. [S]
 
 ## Technical
 - FAQ rich results are gone (May 2026). FAQPage markup is still harmless. [V]

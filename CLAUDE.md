@@ -16,4 +16,4 @@ Astro 7 static site for a DFW cash home buyer. Plan: `docs/00-master-plan.md`.
 - `src/content/*` — collections (schemas in `src/content.config.ts`)
 - `src/data/business.ts` — single source of truth for name/phone/hours
 - `scripts/` — build quality gates
-- `docs/` — strategy, research, owner guides
+- `docs/` — strategy, research, owner guides. Current status: `docs/07-status-2026-11.md`

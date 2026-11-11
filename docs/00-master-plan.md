@@ -1,5 +1,7 @@
 # Plan: Home Offer Solutions, the #1 "Sell My House Fast" site in DFW
 
+> **Status and re-check (2026-11-11):** see [`07-status-2026-11.md`](07-status-2026-11.md) for where the build stands, verified domain facts, and what changed in search since this plan was written. Where the two disagree, the status page is newer.
+
 ## Context
 You buy houses for cash in Dallas–Fort Worth. You want a lead-gen site that ranks in three places:
 - Google organic results
@@ -18,7 +20,7 @@ This plan is based on four research passes:
 | Topic | Decision |
 |---|---|
 | Business model | You buy the houses yourself. The site doesn't mention wholesaling or assignment. |
-| Brand and domain | **Home Offer Solutions**, on `homeoffersolutions.com`. `www.homeoffersolutions.com` still has live DNS pointing at **Carrot**, so it's very likely still yours, and you may still be paying Carrot. We keep it: an aged, brandable domain beats a new one. |
+| Brand and domain | **Home Offer Solutions**, on `homeoffersolutions.com`. It is yours: registered 2020-08-20 at Squarespace Domains, renewed through **2027-08-20** (Verisign RDAP, checked 2026-11-11). `www` still points at **Carrot**, but Carrot no longer serves the site, so the old site is down. We keep the domain: an aged, brandable domain beats a new one. |
 | Google Maps listing | Service-area business using your DFW home address. **The address stays hidden everywhere**: not on the site, not in the code, not on directories. |
 | Texas real estate license | None. So no TREC footer, and we never use the "Real estate agent" category. |
 | Proof you have | Past deals, seller reviews, and people willing to be on camera. **This is your biggest weapon.** |
@@ -29,7 +31,7 @@ This plan is based on four research passes:
 ---
 
 ## 1. How we win, in plain English
-Google and AI engines in 2026 reward **real businesses with real proof** and punish **copy-paste city pages**. Google ran spam updates in March, June and August 2026. The August one ([SEL](https://searchengineland.com/google-august-2026-spam-update-ranking-impact-485980), [GSQi case studies](https://www.gsqi.com/marketing-blog/august-2026-google-spam-update-case-studies/)) specifically hit "programmatic content across locations". **Almost every DFW competitor's city pages fit that description.**
+Google and AI engines in 2026 reward **real businesses with real proof** and punish **copy-paste city pages**. Google ran four spam updates in 2026: March, June, August and September–October. Google named no target for any of them. Practitioner case studies of the August update ([GSQi](https://www.gsqi.com/marketing-blog/august-2026-google-spam-update-case-studies/)) describe programmatic and scaled content being hit, and practitioners reported templated city and county pages among the sites hit in September. **Almost every DFW competitor's city pages fit that description.**
 
 We beat them with four things:
 1. **Proof on every page:** your real deals, photos, reviews and faces.
@@ -475,7 +477,7 @@ It works without JavaScript. The failure fallbacks are retries, then a "call or 
 ## 13. Still to verify
 - **Business Profile category:** check the top-3 map competitors' categories live.
 - **Current prices** for Resend, Pushover and USPS PO Boxes. I'm re-checking all prices at setup.
-- **Old domain:** where it's registered, and its email records.
+- ~~Old domain: where it's registered, and its email records.~~ Answered 2026-11-11: Squarespace Domains, expires 2027-08-20, Google Workspace mail records in place. See `07-status-2026-11.md`.
 - **Carrot tracking number:** whether the old site's number is one.
 - **Google Cloud service-account keys:** whether your Google account allows creating them. If not, the Apps Script fallback is used.
 - **Competitor on-page details:** once network access is widened.
