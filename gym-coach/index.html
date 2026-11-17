@@ -1,0 +1,919 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Spotter</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: camera stage fills the left, a narrow control rail on the right; stacks on phones.
+   Dark by design: the screen sits in a garage gym and is read from two or three metres away. */
+:root {
+  color-scheme: dark;
+  --bg: #12161c;
+  --surface: #1a2029;
+  --raised: #232b36;
+  --line: #313b49;
+  --fg: #eef1f4;
+  --muted: #9aa6b4;
+  --track: #4fd1c5;   /* tracking + primary actions */
+  --rest: #f2b84b;    /* rest timer */
+  --fix: #ff7a6b;     /* form faults */
+  --good: #7bd88f;
+  --display: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", sans-serif;
+  --body: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--body); }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--track); outline-offset: 2px; }
+[hidden] { display: none !important; }
+
+.app { display: grid; grid-template-columns: minmax(0, 1fr) 380px; height: 100%; }
+.stage { position: relative; background: #000; min-height: 0; overflow: hidden; }
+.stage video, .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.stage.mirror video, .stage.mirror canvas { transform: scaleX(-1); }
+
+.hud { position: absolute; inset: 0; pointer-events: none; display: grid; grid-template-rows: auto 1fr auto; padding: 16px; gap: 8px; }
+.hud > * { pointer-events: auto; }
+.hud-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.plate { background: rgb(18 22 28 / 0.78); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; backdrop-filter: blur(6px); }
+.now-ex { font: 600 28px/1.05 var(--display); letter-spacing: 0.01em; text-transform: uppercase; }
+.now-sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.weight { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.weight input { width: 84px; background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: 600 22px/1 var(--display); text-align: center; }
+.weight .unit { color: var(--muted); }
+.weight .src { font-size: 11px; color: var(--track); }
+.step { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line); background: var(--raised); font-size: 18px; line-height: 1; }
+.chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 5px 12px; font: 600 13px/1 var(--body); letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid currentColor; background: rgb(18 22 28 / 0.78); }
+.chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.chip.idle { color: var(--muted); } .chip.ready { color: var(--track); } .chip.work { color: var(--good); } .chip.rest { color: var(--rest); }
+.track-note { margin-top: 6px; font-size: 12px; color: var(--muted); text-align: right; max-width: 260px; }
+.track-note.warn { color: var(--rest); }
+
+.hud-mid { display: flex; align-items: flex-end; justify-content: center; }
+.cue { font: 600 clamp(22px, 3.2vw, 40px)/1.1 var(--display); text-transform: uppercase; padding: 10px 18px; border-radius: 10px; background: rgb(18 22 28 / 0.85); border: 1px solid var(--line); text-align: center; max-width: 90%; }
+.cue.fix { color: var(--fix); border-color: var(--fix); } .cue.good { color: var(--good); border-color: var(--good); }
+.hud-bottom { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
+.big { font: 700 clamp(72px, 13vw, 168px)/0.85 var(--display); font-variant-numeric: tabular-nums; text-shadow: 0 2px 18px rgb(0 0 0 / 0.7); }
+.big small { display: block; font: 600 16px/1.2 var(--body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); text-shadow: none; }
+.big.reps { color: var(--fg); } .big.timer { color: var(--rest); text-align: right; }
+.big.timer.over { color: var(--fix); }
+
+.gate { position: absolute; inset: 0; display: grid; place-items: center; background: var(--bg); padding: 24px; overflow: auto; }
+.gate-card { max-width: 520px; display: grid; gap: 14px; }
+.gate h1 { font: 700 56px/0.95 var(--display); text-transform: uppercase; margin: 0; letter-spacing: 0.01em; }
+.gate p { margin: 0; color: var(--muted); max-width: 60ch; }
+.gate ol { margin: 0; padding-left: 20px; color: var(--muted); display: grid; gap: 4px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.btn { border: 1px solid var(--line); background: var(--raised); border-radius: 8px; padding: 9px 14px; font-weight: 600; }
+.btn.primary { background: var(--track); border-color: var(--track); color: #06201d; }
+.btn.danger { color: var(--fix); }
+.btn.small { padding: 5px 9px; font-size: 12px; }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.err { color: var(--fix); }
+
+.rail { background: var(--surface); border-left: 1px solid var(--line); display: grid; grid-template-rows: auto 1fr; min-height: 0; }
+.tabs { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--line); }
+.tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 12px 4px; font-weight: 600; color: var(--muted); }
+.tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--track); }
+.pane { overflow: auto; padding: 14px 16px 24px; display: grid; gap: 14px; align-content: start; min-height: 0; }
+.pane h2 { font: 600 20px/1.1 var(--display); text-transform: uppercase; letter-spacing: 0.03em; margin: 0; }
+.pane h3 { font: 600 12px/1.2 var(--body); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0; }
+.note { color: var(--muted); font-size: 12px; margin: 0; }
+.card { background: var(--raised); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 8px; }
+.coach { border-color: var(--track); }
+.coach p { margin: 0; font-size: 15px; }
+.coach .by { font-size: 11px; color: var(--muted); }
+
+.queue { display: grid; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.queue li { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: grid; gap: 4px; }
+.queue li.current { border-color: var(--track); background: var(--raised); }
+.queue .q-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.queue .q-name { font-weight: 600; background: none; border: 0; padding: 0; text-align: left; }
+.queue .q-target { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.sets { display: flex; gap: 6px; flex-wrap: wrap; }
+.setchip { font: 600 13px/1 var(--body); font-variant-numeric: tabular-nums; padding: 5px 8px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); }
+.setchip.todo { color: var(--muted); border-style: dashed; background: none; }
+
+.kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+.kv div { background: var(--bg); border-radius: 8px; padding: 8px; }
+.kv b { display: block; font: 600 22px/1 var(--display); font-variant-numeric: tabular-nums; }
+.kv span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.replist { display: grid; gap: 2px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.replist div { display: grid; grid-template-columns: 26px 54px 1fr; gap: 6px; }
+.replist .f { color: var(--fix); } .replist .g { color: var(--good); }
+
+label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.field input, .field select, .field textarea, .plan-ex input, .plan-ex select, .day-name {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; color: var(--fg); min-width: 0; width: 100%; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.day { border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: grid; gap: 8px; }
+.plan-ex { display: grid; grid-template-columns: minmax(0, 1fr) 28px; gap: 6px; align-items: start; }
+.plan-ex .nums { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; grid-column: 1; }
+.plan-ex .nums label { font-size: 10px; color: var(--muted); display: grid; gap: 2px; text-transform: uppercase; letter-spacing: 0.05em; }
+.plan-ex .x { grid-row: 1 / span 2; grid-column: 2; align-self: stretch; }
+.hist { display: grid; gap: 4px; }
+.hist .line { font-size: 13px; font-variant-numeric: tabular-nums; }
+.hist .line b { font-weight: 600; }
+
+@media (max-width: 860px) {
+  html, body { height: auto; }
+  .app { grid-template-columns: 1fr; height: auto; }
+  .stage { height: 62vh; }
+  .rail { border-left: 0; border-top: 1px solid var(--line); }
+  .pane { overflow: visible; }
+}
+@media (prefers-reduced-motion: no-preference) { .cue { transition: opacity 0.2s; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <section class="stage mirror" id="stage" aria-label="Camera">
+    <video id="video" playsinline muted></video>
+    <canvas id="overlay"></canvas>
+
+    <div class="hud" id="hud" hidden>
+      <div class="hud-top">
+        <div class="plate">
+          <div class="now-ex" id="nowEx">—</div>
+          <div class="now-sub" id="nowSub"></div>
+          <div class="weight" id="weightBox">
+            <button class="step" id="wDown" aria-label="Less weight">−</button>
+            <input id="weight" inputmode="decimal" aria-label="Weight for this set">
+            <span class="unit" id="unit">lb</span>
+            <button class="step" id="wUp" aria-label="More weight">+</button>
+            <span class="src" id="wSrc"></span>
+          </div>
+        </div>
+        <div>
+          <div style="text-align:right"><span class="chip idle" id="stateChip">Idle</span></div>
+          <div class="track-note" id="trackNote"></div>
+        </div>
+      </div>
+      <div class="hud-mid"><div class="cue" id="cue" hidden></div></div>
+      <div class="hud-bottom">
+        <div class="big reps"><span id="repNum">0</span><small id="repLabel">reps</small></div>
+        <div class="big timer" id="timerBox" hidden><span id="timerNum">0:00</span><small id="timerLabel">rest</small></div>
+      </div>
+    </div>
+
+    <div class="gate" id="gate">
+      <div class="gate-card">
+        <h1>Spotter</h1>
+        <p>Prop this screen where the camera sees your whole body. Spotter counts reps, times your rest, logs each set and calls out form cues while you lift.</p>
+        <ol>
+          <li>Check today's workout in the panel and adjust the split to yours.</li>
+          <li>Start the camera, then step back until your head and feet are both in frame.</li>
+          <li>Lift. The set starts on your first rep and ends when you stop.</li>
+        </ol>
+        <div class="row">
+          <button class="btn primary" id="startCam">Start camera</button>
+          <button class="btn" id="pickFile">Use a video file</button>
+          <input type="file" id="file" accept="video/*" hidden>
+        </div>
+        <p id="gateMsg" class="note"></p>
+      </div>
+    </div>
+  </section>
+
+  <aside class="rail">
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="session" aria-selected="true">Workout</button>
+      <button role="tab" data-tab="plan" aria-selected="false">Split</button>
+      <button role="tab" data-tab="log" aria-selected="false">Log</button>
+      <button role="tab" data-tab="you" aria-selected="false">You</button>
+    </div>
+    <div class="pane" id="pane"></div>
+  </aside>
+</div>
+
+<script id="engine">
+/* Pure tracking logic: joint angles, rep state machine, form rules, set summaries.
+   No DOM access, so tests can run it in Node. */
+(function (root) {
+  'use strict';
+  const J = { lSh: 11, rSh: 12, lEl: 13, rEl: 14, lWr: 15, rWr: 16, lHip: 23, rHip: 24, lKn: 25, rKn: 26, lAn: 27, rAn: 28 };
+  const deg = (r) => r * 180 / Math.PI;
+  const sub = (a, b) => [a.x - b.x, a.y - b.y, (a.z || 0) - (b.z || 0)];
+  const len = (v) => Math.hypot(v[0], v[1], v[2]);
+  const dist = (a, b) => len(sub(a, b));
+  const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: ((a.z || 0) + (b.z || 0)) / 2 });
+  const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+  const vis = (p, ids) => Math.min(...ids.map((i) => (p[i].visibility == null ? 1 : p[i].visibility)));
+  function ang(a, b, c) {
+    const u = sub(a, b), w = sub(c, b), n = len(u) * len(w);
+    return n ? deg(Math.acos(clamp((u[0] * w[0] + u[1] * w[1] + u[2] * w[2]) / n, -1, 1))) : 180;
+  }
+  // Average both sides when both are clearly visible, otherwise trust the visible one.
+  function sides(p, idsL, idsR, fL, fR) {
+    const a = vis(p, idsL), b = vis(p, idsR);
+    if (a > 0.65 && b > 0.65) return (fL() + fR()) / 2;
+    return a >= b ? fL() : fR();
+  }
+
+  /* w: world landmarks (metres, y points down). p: image landmarks (0..1). aspect: width / height. */
+  function measure(w, p, aspect) {
+    const mSh = mid(w[J.lSh], w[J.rSh]), mHip = mid(w[J.lHip], w[J.rHip]);
+    const torso = dist(mSh, mHip) || 1e-6;
+    const thighOf = (hip, kn) => deg(Math.asin(clamp((w[kn].y - w[hip].y) / (dist(w[hip], w[kn]) || 1e-6), -1, 1)));
+    const m = {
+      knee: sides(p, [J.lHip, J.lKn, J.lAn], [J.rHip, J.rKn, J.rAn], () => ang(w[J.lHip], w[J.lKn], w[J.lAn]), () => ang(w[J.rHip], w[J.rKn], w[J.rAn])),
+      hip: sides(p, [J.lSh, J.lHip, J.lKn], [J.rSh, J.rHip, J.rKn], () => ang(w[J.lSh], w[J.lHip], w[J.lKn]), () => ang(w[J.rSh], w[J.rHip], w[J.rKn])),
+      elbow: sides(p, [J.lSh, J.lEl, J.lWr], [J.rSh, J.rEl, J.rWr], () => ang(w[J.lSh], w[J.lEl], w[J.lWr]), () => ang(w[J.rSh], w[J.rEl], w[J.rWr])),
+      shoulder: sides(p, [J.lHip, J.lSh, J.lEl], [J.rHip, J.rSh, J.rEl], () => ang(w[J.lHip], w[J.lSh], w[J.lEl]), () => ang(w[J.rHip], w[J.rSh], w[J.rEl])),
+      thigh: sides(p, [J.lHip, J.lKn], [J.rHip, J.rKn], () => thighOf(J.lHip, J.lKn), () => thighOf(J.rHip, J.rKn)),
+      bodyLine: sides(p, [J.lSh, J.lHip, J.lAn], [J.rSh, J.rHip, J.rAn], () => ang(w[J.lSh], w[J.lHip], w[J.lAn]), () => ang(w[J.rSh], w[J.rHip], w[J.rAn])),
+      lean: deg(Math.acos(clamp((mHip.y - mSh.y) / torso, -1, 1))),
+      wristsUp: sides(p, [J.lSh, J.lWr], [J.rSh, J.rWr], () => (w[J.lWr].y < w[J.lSh].y ? 1 : 0), () => (w[J.rWr].y < w[J.rSh].y ? 1 : 0)) >= 0.5 ? 1 : 0,
+      kneeRatio: null,
+    };
+    const ankleGap = dist(w[J.lAn], w[J.rAn]);
+    if (ankleGap > 0.15) m.kneeRatio = dist(w[J.lKn], w[J.rKn]) / ankleGap;
+    // Facing: shoulder width against torso length in the picture.
+    const pSh = mid(p[J.lSh], p[J.rSh]), pHip = mid(p[J.lHip], p[J.rHip]);
+    const sw = Math.hypot((p[J.lSh].x - p[J.rSh].x) * aspect, p[J.lSh].y - p[J.rSh].y);
+    const tl = Math.hypot((pSh.x - pHip.x) * aspect, pSh.y - pHip.y) || 1e-6;
+    const r = sw / tl;
+    m.view = r > 0.55 ? 'front' : r < 0.3 ? 'side' : 'angled';
+    const best = (a, b) => Math.max(vis(p, [a]), vis(p, [b]));
+    m.seen = { sh: best(J.lSh, J.rSh), el: best(J.lEl, J.rEl), wr: best(J.lWr, J.rWr), hip: best(J.lHip, J.rHip), kn: best(J.lKn, J.rKn), an: best(J.lAn, J.rAn) };
+    m.body = { femur: (dist(w[J.lHip], w[J.lKn]) + dist(w[J.rHip], w[J.rKn])) / 2, shin: (dist(w[J.lKn], w[J.lAn]) + dist(w[J.rKn], w[J.rAn])) / 2, torso,
+      arm: (dist(w[J.lSh], w[J.lEl]) + dist(w[J.lEl], w[J.lWr]) + dist(w[J.rSh], w[J.rEl]) + dist(w[J.rEl], w[J.rWr])) / 2 };
+    return m;
+  }
+
+  /* rest: where the tracked angle sits between reps. A rep is rest zone -> far zone -> rest zone.
+     first: which half of the rep comes first, 'ecc' (lowering) or 'con' (lifting). gap: quiet seconds that end a set. */
+  const EX = {
+    squat:    { name: 'Back squat', signal: 'knee', rest: 'high', hi: 150, lo: 115, first: 'ecc', needs: ['hip', 'kn', 'an'], gap: 10, maxRep: 10, view: 'Side-on or 45°' },
+    deadlift: { name: 'Deadlift', signal: 'hip', rest: 'high', hi: 155, lo: 120, first: 'ecc', needs: ['sh', 'hip', 'kn'], gap: 14, maxRep: 30, view: 'Side-on' },
+    rdl:      { name: 'Romanian deadlift', signal: 'hip', rest: 'high', hi: 155, lo: 125, first: 'ecc', needs: ['sh', 'hip', 'kn'], gap: 10, maxRep: 12, view: 'Side-on' },
+    ohp:      { name: 'Overhead press', signal: 'elbow', rest: 'low', hi: 150, lo: 100, first: 'con', needs: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Front or 45°', gate: (m) => m.wristsUp === 1 },
+    bench:    { name: 'Bench press', signal: 'elbow', rest: 'high', hi: 150, lo: 105, first: 'ecc', needs: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Side-on, camera at bench height', beta: true },
+    row:      { name: 'Barbell row', signal: 'elbow', rest: 'high', hi: 145, lo: 105, first: 'con', needs: ['sh', 'el', 'wr', 'hip'], gap: 8, maxRep: 8, view: 'Side-on' },
+    curl:     { name: 'Biceps curl', signal: 'elbow', rest: 'high', hi: 140, lo: 75, first: 'con', needs: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Front or side-on' },
+    lateral:  { name: 'Lateral raise', signal: 'shoulder', rest: 'low', hi: 65, lo: 30, first: 'con', needs: ['sh', 'el', 'hip'], gap: 8, maxRep: 8, view: 'Front' },
+    pushup:   { name: 'Push-up', signal: 'elbow', rest: 'high', hi: 150, lo: 110, first: 'ecc', needs: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on, camera low' },
+    pullup:   { name: 'Pull-up', signal: 'elbow', rest: 'high', hi: 145, lo: 95, first: 'con', needs: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Front or behind', gate: (m) => m.wristsUp === 1 },
+    manual:   { name: 'Other (count by hand)', manual: true, gap: 0 },
+  };
+  const NEED_NAME = { sh: 'shoulders', el: 'elbows', wr: 'wrists', hip: 'hips', kn: 'knees', an: 'ankles' };
+
+  function missing(def, m) {
+    if (!m || def.manual) return [];
+    return def.needs.filter((k) => m.seen[k] < 0.5).map((k) => NEED_NAME[k]);
+  }
+
+  /* Form rules. Each returns cues for one finished rep: {id, sev: 'fix' | 'good', text, say}. */
+  const fix = (id, text, say) => ({ id, sev: 'fix', text, say });
+  const FORM = {
+    squat(r, view) {
+      const out = [], d = r.agg.thigh.min;
+      if (d > 25) out.push(fix('depth', 'Well above parallel', 'Go deeper'));
+      else if (d > 10) out.push(fix('depth', 'Just above parallel', 'A little deeper'));
+      if (view !== 'front' && r.agg.lean.max > 60) out.push(fix('chest', 'Chest dropping forward', 'Chest up'));
+      if (view === 'front' && r.agg.kneeRatio && r.agg.kneeRatio.min < 0.75) out.push(fix('knees', 'Knees caving in', 'Knees out'));
+      if (r.ecc < 0.6) out.push(fix('control', 'Dropping too fast', 'Control the way down'));
+      if (!out.length && d <= 10) out.push({ id: 'depth-ok', sev: 'good', text: 'Depth good' });
+      return out;
+    },
+    deadlift(r) {
+      const out = [];
+      if (r.agg.hip.max < 160) out.push(fix('lockout', 'Lockout not finished', 'Stand all the way up'));
+      return out;
+    },
+    rdl(r) {
+      const out = [];
+      if (r.agg.knee.min < 120) out.push(fix('knees', 'Too much knee bend', 'Hips back, soft knees'));
+      if (r.agg.hip.max < 160) out.push(fix('lockout', 'Lockout not finished', 'Stand all the way up'));
+      return out;
+    },
+    ohp(r, view) {
+      const out = [];
+      if (r.agg.elbow.max < 158) out.push(fix('lockout', 'Elbows not locked out', 'Lock it out'));
+      if (view !== 'front' && r.agg.lean.max - r.agg.lean.min > 15) out.push(fix('lean', 'Leaning back', 'Ribs down, squeeze glutes'));
+      return out;
+    },
+    bench(r) {
+      return r.agg.elbow.max < 155 ? [fix('lockout', 'Elbows not locked out', 'Lock it out')] : [];
+    },
+    row(r) {
+      const out = [];
+      if (r.agg.lean.max - r.agg.lean.min > 15) out.push(fix('torso', 'Torso rising with the pull', 'Keep your back angle'));
+      if (r.agg.lean.max < 30) out.push(fix('hinge', 'Standing too upright', 'Hinge further over'));
+      return out;
+    },
+    curl(r) {
+      const out = [];
+      if (r.agg.lean.max - r.agg.lean.min > 12) out.push(fix('swing', 'Swinging the weight', 'Keep your torso still'));
+      if (r.agg.shoulder.max > 40) out.push(fix('elbows', 'Elbows drifting forward', 'Pin your elbows'));
+      if (r.agg.elbow.min > 65) out.push(fix('top', 'Short at the top', 'Curl higher'));
+      return out;
+    },
+    lateral(r) {
+      const out = [];
+      if (r.agg.shoulder.max > 105) out.push(fix('high', 'Raising past shoulder height', 'Stop at shoulder height'));
+      if (r.agg.lean.max - r.agg.lean.min > 12) out.push(fix('swing', 'Swinging the weight', 'No swing'));
+      return out;
+    },
+    pushup(r) {
+      const out = [];
+      if (r.agg.bodyLine.min < 155) out.push(fix('hips', 'Hips sagging', 'Brace, hips up'));
+      if (r.agg.elbow.min > 95) out.push(fix('depth', 'Not low enough', 'Chest to the floor'));
+      return out;
+    },
+    pullup(r) {
+      return r.agg.elbow.min > 80 ? [fix('top', 'Short at the top', 'Chin over the bar')] : [];
+    },
+  };
+
+  const AGG_KEYS = ['knee', 'hip', 'elbow', 'shoulder', 'thigh', 'lean', 'bodyLine', 'kneeRatio'];
+
+  class Tracker {
+    constructor(exId) {
+      this.exId = exId; this.def = EX[exId];
+      this.state = 'unknown'; this.reps = []; this.sm = null; this.lastT = null;
+      this.lost = null; this.view = 'angled'; this.tStart = null; this.manualStart = null;
+      this.hist = []; this.settle = null;
+    }
+    get active() { return this.reps.length > 0 || this.manualStart != null; }
+    get moving() { return this.state === 'out' || this.state === 'far'; }
+
+    update(t, m) {
+      const ev = [], d = this.def;
+      if (d.manual) return ev;
+      if (!m || missing(d, m).length) {
+        if (this.lost == null) this.lost = t;
+        if (t - this.lost > 3) { this.state = 'unknown'; this.sm = null; this.hist = []; this.settle = null; if (this.reps.length) ev.push(this._end()); }
+        this.lastT = t; return ev;
+      }
+      this.lost = null; this.view = m.view;
+      const raw = m[d.signal], dt = this.lastT == null ? 0 : Math.max(0, t - this.lastT);
+      this.sm = this.sm == null ? raw : this.sm + (raw - this.sm) * (1 - Math.exp(-dt / 0.1));
+      this.lastT = t;
+      const s = this.sm, high = d.rest === 'high', h = this.hist;
+      const inA = high ? s > d.hi : s < d.lo, inB = high ? s < d.lo : s > d.hi;
+      h.push({ t, s }); while (h.length > 3 && t - h[0].t > 1.5) h.shift();
+      // Degrees per second toward the far zone, over the last two frames.
+      const toward = (i) => (i >= 2 ? (h[i].s - h[i - 2].s) / ((h[i].t - h[i - 2].t) || 1e-6) * (high ? -1 : 1) : 0);
+
+      // A rep is counted the moment the joint is back in the rest zone; keep timing it until the movement actually stops.
+      if (this.settle) {
+        const r = this.settle;
+        if (this.state === 'rest' && inA && t - r.t0 < 1.5 && toward(h.length - 1) < -20) {
+          const add = t - r.rep.t; r.rep.t = t; r.rep.dur += add; if (d.first === 'ecc') r.rep.con += add; else r.rep.ecc += add;
+        } else this.settle = null;
+      }
+
+      if (this.state === 'unknown') { if (inA) this.state = 'rest'; }
+      else if (this.state === 'rest') {
+        if (!inA) {
+          // Time the rep from when the movement began, not from when it crossed the threshold.
+          let i = h.length - 1; while (i >= 2 && toward(i) > 20) i--;
+          this.state = 'out'; this.tLeave = h[i].t; this.ext = { v: s, t }; this.agg = {}; this._acc(m);
+        }
+      } else {
+        this._acc(m);
+        if (high ? s < this.ext.v : s > this.ext.v) this.ext = { v: s, t };
+        if (this.state === 'out' && inB && (!d.gate || d.gate(m))) this.state = 'far';
+        if (inA) {
+          const dur = t - this.tLeave;
+          if (this.state === 'far' && dur >= 0.4) {
+            const p1 = this.ext.t - this.tLeave, p2 = t - this.ext.t;
+            const rep = { n: this.reps.length + 1, t, dur, ext: this.ext.v, agg: this.agg,
+              ecc: d.first === 'ecc' ? p1 : p2, con: d.first === 'ecc' ? p2 : p1 };
+            rep.cues = FORM[this.exId] ? FORM[this.exId](rep, this.view) : [];
+            if (!this.reps.length) { this.tStart = dur < 8 ? this.tLeave : t - 4; ev.push({ type: 'setStart', t: this.tStart }); }
+            this.reps.push(rep); ev.push({ type: 'rep', rep }); this.settle = { rep, t0: t };
+          }
+          this.state = 'rest';
+        } else if (t - this.tLeave > d.maxRep) { this.state = 'unknown'; }
+      }
+      if (this.reps.length && !this.moving && t - this.reps[this.reps.length - 1].t > d.gap) ev.push(this._end());
+      return ev;
+    }
+    _acc(m) {
+      for (const k of AGG_KEYS) {
+        const v = m[k]; if (v == null) continue;
+        const a = this.agg[k] || (this.agg[k] = { min: v, max: v });
+        if (v < a.min) a.min = v; if (v > a.max) a.max = v;
+      }
+    }
+    /* Manual sets: for untracked exercises, or to force a set to end now. */
+    startManual(t) { if (!this.active) { this.manualStart = t; return { type: 'setStart', t }; } return null; }
+    endNow(t) { return this.active ? this._end(t) : null; }
+    _end(tNow) {
+      const reps = this.reps, n = reps.length;
+      const tEnd = n ? reps[n - 1].t : tNow, tStart = n ? this.tStart : this.manualStart;
+      const avg = (f) => (n ? reps.reduce((a, r) => a + f(r), 0) / n : null);
+      const fixes = {};
+      for (const r of reps) for (const c of r.cues) if (c.sev === 'fix') (fixes[c.id] || (fixes[c.id] = { text: c.text, n: 0 })).n++;
+      let slow = null;
+      if (n >= 3) { const base = Math.min(reps[0].con, reps[1].con); if (base > 0.15) slow = reps[n - 1].con / base - 1; }
+      const set = { reps: n, tStart, tEnd, dur: tEnd - tStart, ecc: avg((r) => r.ecc), con: avg((r) => r.con), slow, fixes, tracked: n > 0,
+        perRep: reps.map((r) => ({ dur: +r.dur.toFixed(2), ecc: +r.ecc.toFixed(2), con: +r.con.toFixed(2), ext: Math.round(r.ext), cues: r.cues.map((c) => c.text) })) };
+      this.reps = []; this.tStart = null; this.manualStart = null;
+      return { type: 'setEnd', t: tEnd, set };
+    }
+  }
+
+  /* Plain-rules coach used when no Claude key is set. target: {lo, hi}; step: smallest weight jump. */
+  function ruleCoach(set, target, weight, step) {
+    const parts = [], reps = set.reps;
+    let next = weight || null;
+    if (target) {
+      if (reps >= target.hi) parts.push(`${reps} reps, top of your ${target.lo} to ${target.hi} range.` + (weight ? ` Go up to ${weight + step} next session.` : ''));
+      else if (reps < target.lo) { if (weight) next = Math.round(weight * 0.9 / step) * step; parts.push(`${reps} reps, under your target of ${target.lo}.` + (weight ? ` Drop to ${next} for the next set.` : '')); }
+      else parts.push(`${reps} reps, in range. Same weight next set.`);
+    } else parts.push(`${reps} reps.`);
+    const top = Object.values(set.fixes).sort((a, b) => b.n - a.n)[0];
+    if (top) parts.push(`Fix first: ${top.text.toLowerCase()}, on ${top.n} of ${reps} reps.`);
+    if (set.slow != null) {
+      if (set.slow >= 0.5) parts.push(`Your last rep was ${Math.round(set.slow * 100)} percent slower than your first, so that was close to your limit.`);
+      else if (set.slow < 0.15 && (!target || reps >= target.lo)) parts.push('Rep speed barely dropped, so you had more in you.');
+    }
+    return { say: parts.join(' '), nextWeight: next };
+  }
+
+  root.GymEngine = { J, EX, measure, missing, Tracker, ruleCoach, ang };
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
+
+<script id="app">
+(function () {
+  'use strict';
+  const { EX, measure, missing, Tracker, ruleCoach } = window.GymEngine;
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, attrs = {}, ...kids) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === 'class') n.className = v; else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+      else if (k === 'value') n.value = v; else if (v === true) n.setAttribute(k, ''); else if (v !== false && v != null) n.setAttribute(k, v);
+    }
+    for (const k of kids.flat()) if (k != null) n.append(k.nodeType ? k : document.createTextNode(k));
+    return n;
+  };
+  const fmtTime = (s) => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  const uid = () => Math.random().toString(36).slice(2, 9);
+
+  /* ---------- Stored state ---------- */
+  const KEY = 'spotter.v1';
+  const ex = (id, sets, lo, hi, weight, rest) => ({ id, sets, lo, hi, weight, rest });
+  const DEFAULTS = {
+    example: true,
+    profile: { goal: 'muscle', level: 'intermediate', units: 'lb', bodyweight: '', height: '', notes: '', body: null },
+    settings: { apiKey: '', model: 'claude-opus-5-5', voice: 'all', mirror: true, accuracy: 'lite', readBar: true, camera: '' },
+    plan: [
+      { key: uid(), name: 'Push', exercises: [ex('ohp', 3, 6, 8, 95, 150), ex('bench', 3, 6, 10, 135, 150), ex('lateral', 3, 12, 15, 15, 75), ex('pushup', 2, 10, 20, 0, 90)] },
+      { key: uid(), name: 'Pull', exercises: [ex('deadlift', 3, 3, 5, 225, 180), ex('row', 3, 8, 10, 135, 120), ex('pullup', 3, 5, 10, 0, 120), ex('curl', 3, 10, 12, 30, 75)] },
+      { key: uid(), name: 'Legs', exercises: [ex('squat', 3, 5, 8, 185, 180), ex('rdl', 3, 8, 10, 155, 120)] },
+    ],
+    history: [],
+    draft: null,
+  };
+  let S = structuredClone(DEFAULTS);
+  try { const raw = localStorage.getItem(KEY); if (raw) { const j = JSON.parse(raw); S = { ...S, ...j, profile: { ...S.profile, ...j.profile }, settings: { ...S.settings, ...j.settings } }; } } catch (e) { /* storage unavailable: run without it */ }
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } };
+  const step = () => (S.profile.units === 'kg' ? 2.5 : 5);
+
+  /* ---------- Session ---------- */
+  // sess: { id, date, dayKey, dayName, items: [{ id, sets, lo, hi, weight, rest, done: [setLog] }], idx }
+  let sess = null, tracker = null, phase = 'idle', restFrom = null, lastRest = null, restBeeped = false;
+  let coachMsg = null, lastSet = null, tab = 'session', pendingSrc = '';
+
+  function startSession(day) {
+    sess = { id: uid(), date: new Date().toISOString(), dayKey: day.key, dayName: day.name, idx: 0,
+      items: day.exercises.map((e) => ({ ...e, done: [] })) };
+    restFrom = null; lastRest = null; coachMsg = null; lastSet = null;
+    selectItem(0); persistDraft();
+  }
+  const item = () => (sess ? sess.items[sess.idx] : null);
+  function lastWeightFor(id) {
+    for (let i = S.history.length - 1; i >= 0; i--) {
+      const it = S.history[i].items.find((x) => x.id === id && x.done.length);
+      if (it) return it.done[it.done.length - 1].weight;
+    }
+    return null;
+  }
+  function selectItem(i) {
+    sess.idx = i; const it = item();
+    tracker = new Tracker(it.id);
+    const prev = it.done.length ? it.done[it.done.length - 1].weight : null;
+    setWeight(prev != null ? prev : (it.weight || lastWeightFor(it.id) || 0), prev != null ? '' : (it.weight ? 'from your split' : ''));
+    phase = restFrom != null ? 'rest' : 'ready';
+    renderHud(); renderPane();
+  }
+  function persistDraft() { S.draft = sess; save(); }
+  function finishSession() {
+    if (!sess) return;
+    if (tracker) { const e = tracker.endNow(clock()); if (e) onSetEnd(e); }
+    if (sess.items.some((i) => i.done.length)) S.history.push({ id: sess.id, date: sess.date, dayName: sess.dayName, items: sess.items.filter((i) => i.done.length).map((i) => ({ id: i.id, lo: i.lo, hi: i.hi, done: i.done })) });
+    S.draft = null; save();
+    sess = null; tracker = null; phase = 'idle'; restFrom = null; coachMsg = null; lastSet = null;
+    say('Workout saved.'); renderHud(); renderPane();
+  }
+
+  /* ---------- Weight ---------- */
+  function setWeight(v, src) {
+    $('weight').value = v ? String(v) : ''; pendingSrc = src || ''; $('wSrc').textContent = pendingSrc;
+  }
+  const curWeight = () => { const v = parseFloat($('weight').value); return isFinite(v) && v > 0 ? v : 0; };
+  $('wUp').onclick = () => setWeight(curWeight() + step(), '');
+  $('wDown').onclick = () => setWeight(Math.max(0, curWeight() - step()), '');
+  $('weight').oninput = () => { pendingSrc = ''; $('wSrc').textContent = ''; };
+
+  /* ---------- Voice ---------- */
+  let lastSaid = { id: '', n: 0 };
+  function say(text, urgent) {
+    if (S.settings.voice === 'off' || !('speechSynthesis' in window) || !text) return;
+    try {
+      if (urgent) speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text); u.rate = 1.05; speechSynthesis.speak(u);
+    } catch (e) { /* no voice on this browser */ }
+  }
+  let actx = null;
+  function beep() {
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.frequency.value = 880; g.gain.setValueAtTime(0.15, actx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + 0.5);
+      o.connect(g).connect(actx.destination); o.start(); o.stop(actx.currentTime + 0.5);
+    } catch (e) { /* no audio */ }
+  }
+  let cueTimer = 0;
+  function showCue(text, sev) {
+    const c = $('cue'); c.textContent = text; c.className = 'cue ' + (sev || ''); c.hidden = false;
+    clearTimeout(cueTimer); cueTimer = setTimeout(() => { c.hidden = true; }, 3500);
+  }
+
+  /* ---------- Tracking events ---------- */
+  function onEvents(evs) {
+    for (const e of evs) {
+      if (e.type === 'setStart') onSetStart(e);
+      else if (e.type === 'rep') onRep(e.rep);
+      else if (e.type === 'setEnd') onSetEnd(e);
+    }
+  }
+  function onSetStart(e) {
+    lastRest = restFrom != null ? Math.max(0, e.t - restFrom) : null;
+    restFrom = null; restBeeped = false; phase = 'work'; lastSaid = { id: '', n: 0 };
+    renderHud();
+  }
+  function onRep(rep) {
+    $('repNum').textContent = rep.n;
+    if (rep.n === 1) maybeReadBar();
+    const c = rep.cues.find((x) => x.sev === 'fix');
+    if (c) {
+      showCue(c.text, 'fix');
+      // Say a correction at most twice in a row, so it coaches without nagging.
+      if (lastSaid.id !== c.id) lastSaid = { id: c.id, n: 0 };
+      if (lastSaid.n < 2) { lastSaid.n++; say(c.say, true); return; }
+    } else if (rep.cues[0]) showCue(rep.cues[0].text, 'good');
+    if (S.settings.voice === 'all') say(String(rep.n), true);
+  }
+  function onSetEnd(e) {
+    const it = item(), set = e.set;
+    const log = { reps: set.reps, weight: curWeight(), unit: S.profile.units, rest: lastRest == null ? null : Math.round(lastRest), dur: Math.round(set.dur),
+      ecc: set.ecc && +set.ecc.toFixed(2), con: set.con && +set.con.toFixed(2), slow: set.slow == null ? null : +set.slow.toFixed(2),
+      fixes: set.fixes, perRep: set.perRep, weightSrc: pendingSrc || 'entered', tracked: set.tracked };
+    it.done.push(log); lastSet = { item: it, log };
+    restFrom = e.t; restBeeped = false; phase = 'rest';
+    const rule = ruleCoach(set, { lo: it.lo, hi: it.hi }, log.weight, step());
+    coachMsg = { text: set.tracked ? rule.say : 'Set logged. Enter your reps.', by: 'Built-in rules' };
+    const doneAll = it.done.length >= it.sets, nxt = sess.items[sess.idx + 1];
+    if (set.tracked) say(coachMsg.text + (doneAll ? (nxt ? ` ${EX[it.id].name} done. Next up, ${EX[nxt.id].name}.` : ' That was the last set. Finish when you are ready.') : ''));
+    if (set.tracked && rule.nextWeight && rule.nextWeight !== log.weight && !doneAll) setWeight(rule.nextWeight, 'suggested');
+    if (set.tracked) claudeCoach(it, log);
+    persistDraft();
+    if (doneAll && nxt) selectItem(sess.idx + 1); else { renderHud(); renderPane(); }
+  }
+  function undoLastSet() {
+    if (!lastSet) return;
+    const i = lastSet.item.done.indexOf(lastSet.log); if (i >= 0) lastSet.item.done.splice(i, 1);
+    lastSet = null; coachMsg = null; persistDraft(); renderHud(); renderPane();
+  }
+
+  /* ---------- Claude (optional) ---------- */
+  async function claude(system, content) {
+    const s = S.settings, opus = s.model === 'claude-opus-5-5';
+    const headers = { 'content-type': 'application/json', 'x-api-key': s.apiKey, 'anthropic-version': '2026-10-21', 'anthropic-dangerous-direct-browser-access': 'true' };
+    const body = { model: s.model, max_tokens: 8000, system, output_config: { effort: 'low' }, messages: [{ role: 'user', content }] };
+    if (opus) { headers['anthropic-beta'] = 'server-side-fallback-2026-07-01'; body.fallbacks = 'default'; }
+    const res = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers, body: JSON.stringify(body) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(res.status === 401 ? 'Claude rejected the API key.' : res.status === 429 ? 'Claude rate limit reached.' : `Claude error ${res.status}: ${j.error?.message || 'request failed'}`);
+    if (j.stop_reason === 'refusal') throw new Error('Claude declined this request.');
+    const text = (j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+    const a = text.indexOf('{'), b = text.lastIndexOf('}');
+    if (a < 0 || b < a) throw new Error('Claude replied in an unexpected format.');
+    return JSON.parse(text.slice(a, b + 1));
+  }
+  const COACH_SYS = `You are a strength coach talking to a lifter between sets through a speaker in their home gym.
+You get their profile, the target for this exercise, and camera-measured data for the sets done today.
+The measurements come from single-camera pose tracking: joint angles are estimates, so act on clear patterns and ignore small differences. "slow" is how much longer the last rep's lifting phase took than the fastest early rep (0.4 = 40% slower).
+Give the one or two things that matter most for the next set, and a weight for it. Be specific and plain. Never diagnose injuries.
+Reply with JSON only: {"say": "<at most 2 short sentences to speak aloud>", "next_weight": <number or null>}`;
+  async function claudeCoach(it, log) {
+    if (!S.settings.apiKey) return;
+    const target = coachMsg;
+    try {
+      const prior = S.history.filter((h) => h.items.some((x) => x.id === it.id)).slice(-1)[0];
+      const data = { profile: { ...S.profile, body: S.profile.body || undefined }, exercise: EX[it.id].name, target: { sets: it.sets, reps: [it.lo, it.hi], rest_seconds: it.rest },
+        sets_today: it.done.map((d) => ({ reps: d.reps, weight: d.weight, unit: d.unit, rest_before_s: d.rest, avg_lowering_s: d.ecc, avg_lifting_s: d.con, slow: d.slow, form_flags: Object.values(d.fixes).map((f) => `${f.text} (${f.n} reps)`), per_rep: d.perRep })),
+        last_session: prior ? prior.items.find((x) => x.id === it.id).done.map((d) => `${d.weight}x${d.reps}`) : null, sets_left: Math.max(0, it.sets - it.done.length) };
+      const r = await claude(COACH_SYS, JSON.stringify(data));
+      if (coachMsg !== target || !r.say) return;           // a newer set has replaced this one
+      coachMsg = { text: r.say, by: 'Claude' };
+      if (typeof r.next_weight === 'number' && r.next_weight > 0 && it === item() && it.done.length < it.sets) setWeight(r.next_weight, 'suggested');
+      say(r.say); renderPane();
+    } catch (e) { if (coachMsg === target) { coachMsg = { ...target, err: e.message }; renderPane(); } }
+  }
+  const BAR_SYS = `You read the loaded weight from a home-gym camera frame. The lifter is doing the named exercise.
+Report a weight ONLY when it is plainly readable: printed numbers on the plates or dumbbells, or standard colour-coded bumper plates you can count with confidence on a standard bar. If plates are hidden, blurred, unlabelled, or you would be guessing, set readable to false.
+Reply with JSON only: {"readable": <true|false>, "total": <total weight including the bar, or the weight of one dumbbell; null if not readable>, "unit": "lb"|"kg"|null, "basis": "<what you saw>"}`;
+  async function maybeReadBar() {
+    const s = S.settings; if (!s.apiKey || !s.readBar || !video.videoWidth) return;
+    const it = item(), n = it.done.length;
+    try {
+      const c = document.createElement('canvas'), k = Math.min(1, 1024 / video.videoWidth);
+      c.width = Math.round(video.videoWidth * k); c.height = Math.round(video.videoHeight * k);
+      c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+      const data = c.toDataURL('image/jpeg', 0.8).split(',')[1];
+      const r = await claude(BAR_SYS, [{ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } }, { type: 'text', text: `Exercise: ${EX[it.id].name}. The lifter's units: ${S.profile.units}.` }]);
+      if (!r.readable || !(r.total > 0)) return;
+      let total = r.total;
+      if (r.unit && r.unit !== S.profile.units) total = r.unit === 'kg' ? Math.round(total * 2.2046 / 5) * 5 : Math.round(total / 2.2046 / 2.5) * 2.5;
+      // Apply to the set in progress, or to its log entry if the set has already ended.
+      if (it === item() && it.done.length === n) setWeight(total, 'read by camera');
+      else if (it.done[n]) { it.done[n].weight = total; it.done[n].weightSrc = 'read by camera'; if (it === item()) setWeight(total, 'read by camera'); persistDraft(); renderPane(); }
+    } catch (e) { /* weight stays as entered */ }
+  }
+
+  /* ---------- Camera and pose model ---------- */
+  const video = $('video'), canvas = $('overlay'), ctx = canvas.getContext('2d');
+  const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+  const MODEL = (v) => `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_${v}/float16/1/pose_landmarker_${v}.task`;
+  let landmarker = null, fileMode = false, running = false, lastVideoTime = -1, lastM = null, fileBase = 0;
+  const clock = () => (fileMode ? fileBase + video.currentTime : performance.now() / 1000);
+
+  async function loadModel() {
+    $('gateMsg').textContent = 'Loading the pose model (about 6 MB the first time)…';
+    const vision = await import(MP + '/vision_bundle.mjs');
+    const files = await vision.FilesetResolver.forVisionTasks(MP + '/wasm');
+    const make = (delegate) => vision.PoseLandmarker.createFromOptions(files, { baseOptions: { modelAssetPath: MODEL(S.settings.accuracy), delegate }, runningMode: 'VIDEO', numPoses: 1 });
+    try { landmarker = await make('GPU'); } catch (e) { landmarker = await make('CPU'); }
+  }
+  async function begin(source) {
+    $('startCam').disabled = $('pickFile').disabled = true; $('gateMsg').className = 'note';
+    try {
+      if (!landmarker) await loadModel();
+      if (source === 'camera') {
+        const want = { width: { ideal: 1280 }, height: { ideal: 720 } };
+        if (S.settings.camera) want.deviceId = { exact: S.settings.camera };
+        let stream;
+        try { stream = await navigator.mediaDevices.getUserMedia({ video: want, audio: false }); }
+        catch (e) { if (!S.settings.camera) throw e; stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }); }
+        video.srcObject = stream; fileMode = false;
+      } else {
+        video.srcObject = null; video.src = URL.createObjectURL(source); fileMode = true; fileBase = performance.now() / 1000;
+      }
+      await video.play();
+      $('stage').classList.toggle('mirror', !fileMode && S.settings.mirror);
+      $('gate').hidden = true; $('hud').hidden = false; running = true;
+      try { await navigator.wakeLock?.request('screen'); } catch (e) { /* screen may sleep */ }
+      if (!sess) { if (S.draft) { sess = S.draft; selectItem(Math.min(sess.idx, sess.items.length - 1)); } else startSession(S.plan[0]); }
+      renderHud(); renderPane(); loop();
+    } catch (e) {
+      const msg = e.name === 'NotAllowedError' ? 'Camera access was blocked. Allow the camera for this page in your browser, then try again.'
+        : e.name === 'NotFoundError' ? 'No camera found on this device.'
+        : !window.isSecureContext ? 'The browser only allows the camera on https pages or on localhost. Open this file through a local server.'
+        : 'Could not start: ' + (e.message || e) + '. The pose model needs an internet connection the first time.';
+      $('gateMsg').textContent = msg; $('gateMsg').className = 'err';
+    }
+    $('startCam').disabled = $('pickFile').disabled = false;
+  }
+  $('startCam').onclick = () => begin('camera');
+  $('pickFile').onclick = () => $('file').click();
+  $('file').onchange = (e) => { if (e.target.files[0]) begin(e.target.files[0]); };
+  video.onended = () => { const e = tracker && tracker.endNow(clock()); if (e) onEvents([e]); };
+
+  const BONES = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [24, 26], [26, 28], [27, 31], [28, 32]];
+  function draw(p) {
+    if (canvas.width !== video.videoWidth) { canvas.width = video.videoWidth; canvas.height = video.videoHeight; }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!p) return;
+    const W = canvas.width, H = canvas.height, css = getComputedStyle(document.documentElement);
+    ctx.lineWidth = Math.max(3, W / 320); ctx.lineCap = 'round';
+    ctx.strokeStyle = css.getPropertyValue(phase === 'work' ? '--good' : '--track').trim();
+    for (const [a, b] of BONES) {
+      if ((p[a].visibility ?? 1) < 0.5 || (p[b].visibility ?? 1) < 0.5) continue;
+      ctx.beginPath(); ctx.moveTo(p[a].x * W, p[a].y * H); ctx.lineTo(p[b].x * W, p[b].y * H); ctx.stroke();
+    }
+    ctx.fillStyle = css.getPropertyValue('--fg').trim();
+    for (const i of [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]) {
+      if ((p[i].visibility ?? 1) < 0.5) continue;
+      ctx.beginPath(); ctx.arc(p[i].x * W, p[i].y * H, ctx.lineWidth * 1.1, 0, 7); ctx.fill();
+    }
+  }
+
+  let bodyAcc = null;
+  function sampleBody(m) {
+    // Limb proportions, averaged over frames where the lifter stands tall and fully visible.
+    if (S.profile.body || m.knee < 165 || m.hip < 165 || Object.values(m.seen).some((v) => v < 0.7)) return;
+    bodyAcc = bodyAcc || { n: 0, femur: 0, shin: 0, torso: 0, arm: 0 };
+    for (const k of ['femur', 'shin', 'torso', 'arm']) bodyAcc[k] += m.body[k];
+    if (++bodyAcc.n >= 45) {
+      const b = bodyAcc, r = (x) => +(x).toFixed(2);
+      S.profile.body = { femur_to_torso: r(b.femur / b.torso), shin_to_femur: r(b.shin / b.femur), arm_to_torso: r(b.arm / b.torso) };
+      save(); if (tab === 'you') renderPane();
+    }
+  }
+
+  function loop() {
+    if (!running) return;
+    requestAnimationFrame(loop);
+    if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+      lastVideoTime = video.currentTime;
+      let res = null;
+      try { res = landmarker.detectForVideo(video, performance.now()); } catch (e) { /* skip frame */ }
+      const p = res && res.landmarks && res.landmarks[0], w = res && res.worldLandmarks && res.worldLandmarks[0];
+      lastM = p && w ? measure(w, p, video.videoWidth / video.videoHeight) : null;
+      draw(p);
+      if (lastM) sampleBody(lastM);
+      if (tracker) onEvents(tracker.update(clock(), lastM));
+    }
+    tick();
+  }
+
+  /* ---------- HUD ---------- */
+  function tick() {
+    if (!sess) return;
+    const it = item(), def = EX[it.id];
+    // Tracking note
+    const note = $('trackNote');
+    if (def.manual) { note.textContent = 'Counted by hand. Use Start set and End set.'; note.className = 'track-note'; }
+    else if (!lastM) { note.textContent = 'No one in view. Step into the frame.'; note.className = 'track-note warn'; }
+    else {
+      const miss = missing(def, lastM);
+      note.textContent = miss.length ? `Can't see your ${miss.join(' and ')}. Step back or move the camera.` : `Tracking · ${lastM.view} view · best: ${def.view}`;
+      note.className = 'track-note' + (miss.length ? ' warn' : '');
+    }
+    // Rest timer
+    const tb = $('timerBox');
+    if (restFrom != null && phase === 'rest') {
+      const r = clock() - restFrom, over = r >= it.rest;
+      tb.hidden = false; $('timerNum').textContent = fmtTime(r); $('timerLabel').textContent = `rest · target ${fmtTime(it.rest)}`;
+      tb.classList.toggle('over', over);
+      if (over && !restBeeped) { restBeeped = true; beep(); say('Rest is up. Start when you are ready.'); }
+    } else tb.hidden = true;
+    if (phase === 'work' && tracker && def.manual && tracker.manualStart != null) $('repNum').textContent = fmtTime(clock() - tracker.manualStart);
+  }
+  function renderHud() {
+    if (!sess) { $('nowEx').textContent = 'No workout running'; $('nowSub').textContent = 'Pick a day in the Workout tab'; $('weightBox').hidden = true; setChip('idle', 'Idle'); $('repNum').textContent = '0'; return; }
+    const it = item(), def = EX[it.id];
+    $('weightBox').hidden = false; $('unit').textContent = S.profile.units;
+    $('nowEx').textContent = def.name + (def.beta ? ' (beta)' : '');
+    const n = Math.min(it.done.length + 1, it.sets);
+    $('nowSub').textContent = it.done.length >= it.sets ? `All ${it.sets} sets done` : `Set ${n} of ${it.sets} · target ${it.lo === it.hi ? it.lo : it.lo + '–' + it.hi} reps`;
+    if (phase === 'work') { setChip('work', 'Working'); $('repLabel').textContent = def.manual ? 'set time' : 'reps'; if (!def.manual) $('repNum').textContent = tracker.reps.length; }
+    else if (phase === 'rest') { setChip('rest', 'Resting'); $('repLabel').textContent = 'last set'; $('repNum').textContent = lastSet ? lastSet.log.reps : 0; }
+    else { setChip('ready', 'Ready'); $('repLabel').textContent = 'reps'; $('repNum').textContent = '0'; }
+  }
+  function setChip(cls, text) { const c = $('stateChip'); c.className = 'chip ' + cls; c.textContent = text; }
+
+  /* ---------- Side panel ---------- */
+  document.querySelectorAll('.tabs button').forEach((b) => b.onclick = () => {
+    tab = b.dataset.tab; document.querySelectorAll('.tabs button').forEach((x) => x.setAttribute('aria-selected', x === b));
+    renderPane();
+  });
+  function renderPane() {
+    const pane = $('pane'), sc = pane.scrollTop; pane.replaceChildren(...({ session: paneSession, plan: panePlan, log: paneLog, you: paneYou })[tab]()); pane.scrollTop = sc;
+  }
+  const targetText = (it) => `${it.sets} × ${it.lo === it.hi ? it.lo : it.lo + '–' + it.hi}`;
+  const setText = (d) => `${d.weight ? d.weight + ' × ' : ''}${d.reps}`;
+
+  function paneSession() {
+    if (!sess) {
+      return [el('h2', {}, 'Start a workout'),
+        S.example ? el('p', { class: 'note' }, 'This is an example split with example weights. Change it in the Split tab.') : null,
+        ...S.plan.map((d) => el('div', { class: 'card' }, el('b', {}, d.name), el('span', { class: 'note' }, d.exercises.map((e) => EX[e.id].name).join(' · ') || 'No exercises yet'),
+          el('div', { class: 'row' }, el('button', { class: 'btn primary small', disabled: !d.exercises.length, onclick: () => startSession(d) }, 'Start ' + d.name)))),
+        running ? null : el('p', { class: 'note' }, 'Start the camera to begin tracking.')];
+    }
+    const it = item(), def = EX[it.id], out = [];
+    out.push(el('div', { class: 'row', style: 'justify-content:space-between' }, el('h2', {}, sess.dayName), el('button', { class: 'btn small', onclick: finishSession }, 'Finish workout')));
+    if (coachMsg) out.push(el('div', { class: 'card coach' }, el('p', {}, coachMsg.text), el('span', { class: 'by' }, 'Coach: ' + coachMsg.by + (coachMsg.err ? ' · ' + coachMsg.err : ''))));
+    if (lastSet) {
+      const L = lastSet.log, reRender = () => { persistDraft(); renderHud(); renderPane(); };
+      out.push(el('div', { class: 'card' },
+        el('h3', {}, 'Last set · ' + EX[lastSet.item.id].name),
+        el('div', { class: 'kv' },
+          el('div', {}, el('b', {}, String(L.reps)), el('span', {}, 'reps')),
+          el('div', {}, el('b', {}, L.weight ? String(L.weight) : '—'), el('span', {}, L.unit)),
+          el('div', {}, el('b', {}, L.rest == null ? '—' : fmtTime(L.rest)), el('span', {}, 'rest before')),
+          L.con ? el('div', {}, el('b', {}, L.ecc.toFixed(1) + ' / ' + L.con.toFixed(1)), el('span', {}, 'down / up s')) : null,
+          L.slow != null ? el('div', {}, el('b', {}, (L.slow > 0 ? '+' : '') + Math.round(L.slow * 100) + '%'), el('span', {}, 'last rep slower')) : null),
+        el('div', { class: 'row' },
+          el('button', { class: 'btn small', onclick: () => { L.reps = Math.max(0, L.reps - 1); reRender(); } }, '− rep'),
+          el('button', { class: 'btn small', onclick: () => { L.reps++; reRender(); } }, '+ rep'),
+          el('button', { class: 'btn small', onclick: () => { L.weight = curWeight(); L.weightSrc = 'entered'; reRender(); } }, 'Set weight to ' + (curWeight() || 0)),
+          el('button', { class: 'btn small danger', onclick: undoLastSet }, 'Delete set')),
+        L.perRep.length ? el('div', { class: 'replist' }, L.perRep.map((r, i) => el('div', {}, el('span', {}, '#' + (i + 1)), el('span', {}, r.dur.toFixed(1) + ' s'), el('span', { class: r.cues.length ? 'f' : 'g' }, r.cues.join(', ') || 'clean')))) : null));
+    }
+    out.push(el('div', { class: 'row' },
+      def.manual || !running ? el('button', { class: 'btn small', onclick: () => { const e = tracker.startManual(clock()); if (e) onEvents([e]); } }, 'Start set') : null,
+      el('button', { class: 'btn small', onclick: () => { const e = tracker.endNow(clock()); if (e) onEvents([e]); } }, 'End set now'),
+      el('span', { class: 'note' }, 'Space bar ends a set')));
+    out.push(el('h3', {}, 'Today'));
+    out.push(el('ol', { class: 'queue' }, sess.items.map((q, i) => el('li', { class: i === sess.idx ? 'current' : '' },
+      el('div', { class: 'q-head' }, el('button', { class: 'q-name', onclick: () => { const e = tracker.endNow(clock()); if (e) onEvents([e]); selectItem(i); } }, EX[q.id].name), el('span', { class: 'q-target' }, targetText(q) + (q.weight ? ' @ ' + q.weight : ''))),
+      el('div', { class: 'sets' }, q.done.map((d) => el('span', { class: 'setchip' }, setText(d))), Array.from({ length: Math.max(0, q.sets - q.done.length) }, () => el('span', { class: 'setchip todo' }, '·')))))));
+    out.push(el('p', { class: 'note' }, 'Form cues are camera estimates from one angle. Treat them as prompts, and use your own judgement on heavy lifts.'));
+    return out;
+  }
+
+  function panePlan() {
+    const touch = () => { S.example = false; save(); };
+    const num = (label, obj, key, min) => el('label', {}, label, el('input', { type: 'number', min, value: obj[key], id: 'p-' + uid(), oninput: (e) => { obj[key] = Math.max(min, +e.target.value || 0); touch(); } }));
+    return [el('h2', {}, 'Your split'),
+      S.example ? el('p', { class: 'note' }, 'Example split with example weights. Edit anything and it becomes yours.') : el('p', { class: 'note' }, 'Changes apply to the next workout you start.'),
+      ...S.plan.map((d, di) => el('div', { class: 'day' },
+        el('div', { class: 'row' }, el('input', { class: 'day-name', style: 'flex:1', value: d.name, 'aria-label': 'Day name', id: 'dn-' + d.key, oninput: (e) => { d.name = e.target.value; touch(); } }),
+          el('button', { class: 'btn small danger', onclick: () => { S.plan.splice(di, 1); touch(); renderPane(); } }, 'Remove day')),
+        ...d.exercises.map((x, xi) => el('div', { class: 'plan-ex' },
+          el('select', { 'aria-label': 'Exercise', id: 'ps-' + uid(), onchange: (e) => { x.id = e.target.value; touch(); } }, Object.entries(EX).map(([id, def]) => el('option', { value: id, selected: id === x.id }, def.name + (def.beta ? ' (beta)' : '')))),
+          el('button', { class: 'btn small x', 'aria-label': 'Remove exercise', onclick: () => { d.exercises.splice(xi, 1); touch(); renderPane(); } }, '×'),
+          el('div', { class: 'nums' }, num('Sets', x, 'sets', 1), num('Min', x, 'lo', 1), num('Max', x, 'hi', 1), num(S.profile.units, x, 'weight', 0), num('Rest s', x, 'rest', 0)))),
+        el('button', { class: 'btn small', onclick: () => { d.exercises.push(ex('squat', 3, 6, 8, 0, 120)); touch(); renderPane(); } }, '+ Exercise'))),
+      el('button', { class: 'btn', onclick: () => { S.plan.push({ key: uid(), name: 'New day', exercises: [] }); touch(); renderPane(); } }, '+ Day')];
+  }
+
+  function paneLog() {
+    const out = [el('h2', {}, 'Training log')];
+    if (!S.history.length) out.push(el('p', { class: 'note' }, 'Finished workouts appear here with every set, rest time and form flag.'));
+    for (const h of [...S.history].reverse()) {
+      out.push(el('div', { class: 'card hist' }, el('h3', {}, new Date(h.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) + ' · ' + h.dayName),
+        h.items.map((i) => el('div', { class: 'line' }, el('b', {}, EX[i.id].name + ': '), i.done.map(setText).join(', ')))));
+    }
+    if (S.history.length) out.push(el('div', { class: 'row' },
+      el('button', { class: 'btn small', onclick: () => { const a = el('a', { href: URL.createObjectURL(new Blob([JSON.stringify(S.history, null, 2)], { type: 'application/json' })), download: 'spotter-log.json' }); a.click(); } }, 'Export as JSON'),
+      el('button', { class: 'btn small danger', id: 'clearLog', onclick: (e) => { if (e.target.dataset.sure) { S.history = []; save(); renderPane(); } else { e.target.dataset.sure = 1; e.target.textContent = 'Click again to delete all'; } } }, 'Clear log')));
+    return out;
+  }
+
+  function paneYou() {
+    const P = S.profile, T = S.settings;
+    const field = (label, node) => el('label', { class: 'field' }, label, node);
+    const bind = (obj, key, attrs = {}) => ({ id: 'f-' + key, value: obj[key], oninput: (e) => { obj[key] = e.target.value; save(); }, ...attrs });
+    const sel = (obj, key, opts, after) => el('select', { id: 'f-' + key, onchange: (e) => { const v = e.target.value; obj[key] = v === 'true' ? true : v === 'false' ? false : v; save(); if (after) after(); } },
+      opts.map(([v, t]) => el('option', { value: v, selected: String(obj[key]) === String(v) }, t)));
+    const b = P.body;
+    const out = [el('h2', {}, 'You'),
+      field('Main goal', sel(P, 'goal', [['muscle', 'Build muscle'], ['strength', 'Get stronger'], ['fatloss', 'Lose fat, keep muscle'], ['general', 'General fitness']])),
+      el('div', { class: 'grid2' },
+        field('Experience', sel(P, 'level', [['beginner', 'Under 1 year'], ['intermediate', '1–3 years'], ['advanced', '3+ years']])),
+        field('Units', sel(P, 'units', [['lb', 'Pounds'], ['kg', 'Kilograms']], () => { renderHud(); }))),
+      el('div', { class: 'grid2' }, field('Bodyweight', el('input', bind(P, 'bodyweight', { inputmode: 'decimal' }))), field('Height', el('input', bind(P, 'height')))),
+      field('Injuries, limits, anything the coach should know', el('textarea', bind(P, 'notes', { rows: 3 }))),
+      el('div', { class: 'card' }, el('h3', {}, 'Proportions measured by camera'),
+        b ? el('div', { class: 'kv' }, el('div', {}, el('b', {}, String(b.femur_to_torso)), el('span', {}, 'femur : torso')), el('div', {}, el('b', {}, String(b.shin_to_femur)), el('span', {}, 'shin : femur')), el('div', {}, el('b', {}, String(b.arm_to_torso)), el('span', {}, 'arm : torso')))
+          : el('p', { class: 'note' }, 'Stand tall in full view for a couple of seconds and Spotter measures your limb proportions.'),
+        b ? el('div', { class: 'row' }, el('span', { class: 'note' }, 'Estimates. Sent to the coach as context.'), el('button', { class: 'btn small', onclick: () => { P.body = null; bodyAcc = null; save(); renderPane(); } }, 'Measure again')) : null),
+      el('h2', {}, 'Coach and camera'),
+      field('Claude API key (optional)', el('input', bind(T, 'apiKey', { type: 'password', autocomplete: 'off', placeholder: 'sk-ant-…' }))),
+      el('p', { class: 'note' }, 'With a key, Claude writes the between-set coaching and reads the bar weight from the camera when the plates are clearly readable. One frame per set is sent to Anthropic for that. The key stays in this browser. Without a key, coaching uses built-in rules and you enter the weight.'),
+      el('div', { class: 'grid2' },
+        field('Claude model', sel(T, 'model', [['claude-opus-5-5', 'Opus 5.5'], ['claude-haiku-5-5', 'Haiku 5.5 (faster, cheaper)']])),
+        field('Read bar weight', sel(T, 'readBar', [['true', 'When readable'], ['false', 'Never']]))),
+      el('div', { class: 'grid2' },
+        field('Voice', sel(T, 'voice', [['all', 'Rep count and cues'], ['cues', 'Cues only'], ['off', 'Off']])),
+        field('Tracking accuracy', sel(T, 'accuracy', [['lite', 'Fast'], ['full', 'Balanced'], ['heavy', 'Most accurate']]))),
+      el('div', { class: 'grid2' },
+        field('Mirror the picture', sel(T, 'mirror', [['true', 'On'], ['false', 'Off']])),
+        field('Camera', el('select', { id: 'f-camera', onchange: (e) => { T.camera = e.target.value; save(); } }, el('option', { value: '' }, 'Default')))),
+      el('p', { class: 'note' }, 'Accuracy, camera and mirror changes apply after you reload the page.')];
+    queueMicrotask(async () => {
+      try {
+        const s = $('f-camera'); if (!s || !navigator.mediaDevices?.enumerateDevices) return;
+        for (const d of (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput' && d.deviceId)) s.append(el('option', { value: d.deviceId, selected: d.deviceId === T.camera }, d.label || 'Camera'));
+      } catch (e) { /* list unavailable */ }
+    });
+    return out;
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.code !== 'Space' || /INPUT|TEXTAREA|SELECT|BUTTON/.test(e.target.tagName) || !tracker) return;
+    e.preventDefault(); const ev = tracker.endNow(clock()); if (ev) onEvents([ev]);
+  });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && running) navigator.wakeLock?.request('screen').catch(() => {}); });
+
+  if (S.draft) { sess = S.draft; selectItem(Math.min(sess.idx, sess.items.length - 1)); }
+  renderHud(); renderPane();
+  window.__spotter = { state: () => ({ phase, sess, lastM, running, coachMsg }), feed: onEvents, S };
+})();
+</script>
+</body>
+</html>
