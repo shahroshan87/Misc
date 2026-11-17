@@ -107,6 +107,10 @@ button { cursor: pointer; }
 .replist .f { color: var(--fix); } .replist .g { color: var(--good); }
 
 label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px 10px; }
+.checks label { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+.checks input { accent-color: var(--track); width: 16px; height: 16px; }
+.note.err { color: var(--fix); }
 .field input, .field select, .field textarea, .plan-ex input, .plan-ex select, .day-name {
   background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; color: var(--fg); min-width: 0; width: 100%; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -207,22 +211,23 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     const u = sub(a, b), w = sub(c, b), n = len(u) * len(w);
     return n ? deg(Math.acos(clamp((u[0] * w[0] + u[1] * w[1] + u[2] * w[2]) / n, -1, 1))) : 180;
   }
-  // Average both sides when both are clearly visible, otherwise trust the visible one.
-  function sides(p, idsL, idsR, fL, fR) {
-    const a = vis(p, idsL), b = vis(p, idsR);
-    if (a > 0.65 && b > 0.65) return (fL() + fR()) / 2;
-    return a >= b ? fL() : fR();
+  // avg: both sides averaged when both are clearly visible, else the visible one. min: the more bent side (one-sided lifts).
+  function pair(p, idsL, idsR, fL, fR) {
+    const a = vis(p, idsL), b = vis(p, idsR), l = fL(), r = fR();
+    return { avg: a > 0.65 && b > 0.65 ? (l + r) / 2 : (a >= b ? l : r), min: a > 0.5 && b > 0.5 ? Math.min(l, r) : (a >= b ? l : r) };
   }
+  const sides = (p, idsL, idsR, fL, fR) => pair(p, idsL, idsR, fL, fR).avg;
 
   /* w: world landmarks (metres, y points down). p: image landmarks (0..1). aspect: width / height. */
   function measure(w, p, aspect) {
     const mSh = mid(w[J.lSh], w[J.rSh]), mHip = mid(w[J.lHip], w[J.rHip]);
     const torso = dist(mSh, mHip) || 1e-6;
     const thighOf = (hip, kn) => deg(Math.asin(clamp((w[kn].y - w[hip].y) / (dist(w[hip], w[kn]) || 1e-6), -1, 1)));
+    const kn = pair(p, [J.lHip, J.lKn, J.lAn], [J.rHip, J.rKn, J.rAn], () => ang(w[J.lHip], w[J.lKn], w[J.lAn]), () => ang(w[J.rHip], w[J.rKn], w[J.rAn]));
+    const hp = pair(p, [J.lSh, J.lHip, J.lKn], [J.rSh, J.rHip, J.rKn], () => ang(w[J.lSh], w[J.lHip], w[J.lKn]), () => ang(w[J.rSh], w[J.rHip], w[J.rKn]));
+    const eb = pair(p, [J.lSh, J.lEl, J.lWr], [J.rSh, J.rEl, J.rWr], () => ang(w[J.lSh], w[J.lEl], w[J.lWr]), () => ang(w[J.rSh], w[J.rEl], w[J.rWr]));
     const m = {
-      knee: sides(p, [J.lHip, J.lKn, J.lAn], [J.rHip, J.rKn, J.rAn], () => ang(w[J.lHip], w[J.lKn], w[J.lAn]), () => ang(w[J.rHip], w[J.rKn], w[J.rAn])),
-      hip: sides(p, [J.lSh, J.lHip, J.lKn], [J.rSh, J.rHip, J.rKn], () => ang(w[J.lSh], w[J.lHip], w[J.lKn]), () => ang(w[J.rSh], w[J.rHip], w[J.rKn])),
-      elbow: sides(p, [J.lSh, J.lEl, J.lWr], [J.rSh, J.rEl, J.rWr], () => ang(w[J.lSh], w[J.lEl], w[J.lWr]), () => ang(w[J.rSh], w[J.rEl], w[J.rWr])),
+      knee: kn.avg, kneeMin: kn.min, hip: hp.avg, hipMin: hp.min, elbow: eb.avg, elbowMin: eb.min,
       shoulder: sides(p, [J.lHip, J.lSh, J.lEl], [J.rHip, J.rSh, J.rEl], () => ang(w[J.lHip], w[J.lSh], w[J.lEl]), () => ang(w[J.rHip], w[J.rSh], w[J.rEl])),
       thigh: sides(p, [J.lHip, J.lKn], [J.rHip, J.rKn], () => thighOf(J.lHip, J.lKn), () => thighOf(J.rHip, J.rKn)),
       bodyLine: sides(p, [J.lSh, J.lHip, J.lAn], [J.rSh, J.rHip, J.rAn], () => ang(w[J.lSh], w[J.lHip], w[J.lAn]), () => ang(w[J.rSh], w[J.rHip], w[J.rAn])),
@@ -245,26 +250,137 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     return m;
   }
 
-  /* rest: where the tracked angle sits between reps. A rep is rest zone -> far zone -> rest zone.
+  /* Tracking presets. rest: where the tracked angle sits between reps. A rep is rest zone -> far zone -> rest zone.
      first: which half of the rep comes first, 'ecc' (lowering) or 'con' (lifting). gap: quiet seconds that end a set. */
-  const EX = {
-    squat:    { name: 'Back squat', signal: 'knee', rest: 'high', hi: 150, lo: 115, first: 'ecc', needs: ['hip', 'kn', 'an'], gap: 10, maxRep: 10, view: 'Side-on or 45°' },
-    deadlift: { name: 'Deadlift', signal: 'hip', rest: 'high', hi: 155, lo: 120, first: 'ecc', needs: ['sh', 'hip', 'kn'], gap: 14, maxRep: 30, view: 'Side-on' },
-    rdl:      { name: 'Romanian deadlift', signal: 'hip', rest: 'high', hi: 155, lo: 125, first: 'ecc', needs: ['sh', 'hip', 'kn'], gap: 10, maxRep: 12, view: 'Side-on' },
-    ohp:      { name: 'Overhead press', signal: 'elbow', rest: 'low', hi: 150, lo: 100, first: 'con', needs: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Front or 45°', gate: (m) => m.wristsUp === 1 },
-    bench:    { name: 'Bench press', signal: 'elbow', rest: 'high', hi: 150, lo: 105, first: 'ecc', needs: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Side-on, camera at bench height', beta: true },
-    row:      { name: 'Barbell row', signal: 'elbow', rest: 'high', hi: 145, lo: 105, first: 'con', needs: ['sh', 'el', 'wr', 'hip'], gap: 8, maxRep: 8, view: 'Side-on' },
-    curl:     { name: 'Biceps curl', signal: 'elbow', rest: 'high', hi: 140, lo: 75, first: 'con', needs: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Front or side-on' },
-    lateral:  { name: 'Lateral raise', signal: 'shoulder', rest: 'low', hi: 65, lo: 30, first: 'con', needs: ['sh', 'el', 'hip'], gap: 8, maxRep: 8, view: 'Front' },
-    pushup:   { name: 'Push-up', signal: 'elbow', rest: 'high', hi: 150, lo: 110, first: 'ecc', needs: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on, camera low' },
-    pullup:   { name: 'Pull-up', signal: 'elbow', rest: 'high', hi: 145, lo: 95, first: 'con', needs: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Front or behind', gate: (m) => m.wristsUp === 1 },
-    manual:   { name: 'Other (count by hand)', manual: true, gap: 0 },
+  const up = (m) => m.wristsUp === 1, down = (m) => m.wristsUp === 0;
+  const T = {
+    squat:    { signal: 'knee', rest: 'high', hi: 150, lo: 115, first: 'ecc', joints: ['hip', 'kn', 'an'], gap: 10, maxRep: 10, view: 'Side-on or 45°', form: 'squat' },
+    oneleg:   { signal: 'kneeMin', rest: 'high', hi: 150, lo: 115, first: 'ecc', joints: ['hip', 'kn', 'an'], gap: 10, maxRep: 10, view: 'Side-on' },
+    deadlift: { signal: 'hip', rest: 'high', hi: 155, lo: 120, first: 'ecc', joints: ['sh', 'hip', 'kn'], gap: 14, maxRep: 30, view: 'Side-on', form: 'deadlift' },
+    hinge:    { signal: 'hip', rest: 'high', hi: 155, lo: 125, first: 'ecc', joints: ['sh', 'hip', 'kn'], gap: 10, maxRep: 12, view: 'Side-on', form: 'rdl' },
+    press:    { signal: 'elbow', rest: 'low', hi: 150, lo: 100, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Front or 45°', gate: up, form: 'ohp' },
+    bench:    { signal: 'elbow', rest: 'high', hi: 150, lo: 105, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Side-on, camera at bench height', form: 'lockout', beta: true },
+    pushup:   { signal: 'elbow', rest: 'high', hi: 150, lo: 110, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on, camera low', form: 'pushup' },
+    dip:      { signal: 'elbow', rest: 'high', hi: 150, lo: 105, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on', form: 'dip' },
+    row:      { signal: 'elbow', rest: 'high', hi: 145, lo: 105, first: 'con', joints: ['sh', 'el', 'wr', 'hip'], gap: 8, maxRep: 8, view: 'Side-on', form: 'row' },
+    pull:     { signal: 'elbow', rest: 'high', hi: 145, lo: 95, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Front or behind', gate: up, form: 'pullup' },
+    curl:     { signal: 'elbow', rest: 'high', hi: 140, lo: 75, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Front or side-on', form: 'curl' },
+    raise:    { signal: 'shoulder', rest: 'low', hi: 65, lo: 30, first: 'con', joints: ['sh', 'el', 'hip'], gap: 8, maxRep: 8, view: 'Front', form: 'lateral' },
+    overhead: { signal: 'elbow', rest: 'high', hi: 150, lo: 100, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on', form: 'lockout' },
+    pushdown: { signal: 'elbow', rest: 'low', hi: 150, lo: 100, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on', gate: down, form: 'lockout' },
+    legraise: { signal: 'hip', rest: 'high', hi: 150, lo: 115, first: 'con', joints: ['sh', 'hip', 'kn'], gap: 8, maxRep: 8, view: 'Side-on', gate: up },
+    manual:   { manual: true, gap: 0 },
   };
+  const EQUIP = { barbell: 'Barbell and plates', rack: 'Squat rack or stands', bench: 'Flat bench', incline: 'Adjustable incline bench', dumbbells: 'Dumbbells',
+    kettlebell: 'Kettlebell', pullupbar: 'Pull-up bar', dipbars: 'Dip bars', bands: 'Resistance bands', cable: 'Cable or pulley' };
+  const PATTERNS = { knee: 'Quads and glutes', hinge: 'Hamstrings and glutes', hpush: 'Chest', vpush: 'Shoulders', hpull: 'Upper back', vpull: 'Lats',
+    delts: 'Side delts', biceps: 'Biceps', triceps: 'Triceps', calves: 'Calves', core: 'Abs' };
+  /* The catalogue. eq: equipment sets that make the lift possible (any one set is enough); no eq means bodyweight.
+     Within a pattern, earlier entries are preferred when building a split. */
+  const X = (name, pattern, t, eq, extra) => ({ name, pattern, eq, ...T[t], ...extra });
+  const EX = {
+    squat:      X('Back squat', 'knee', 'squat', [['barbell', 'rack']]),
+    goblet:     X('Goblet squat', 'knee', 'squat', [['dumbbells'], ['kettlebell']]),
+    splitsquat: X('Bulgarian split squat', 'knee', 'oneleg'),
+    lunge:      X('Reverse lunge', 'knee', 'oneleg'),
+    bwsquat:    X('Bodyweight squat', 'knee', 'squat'),
+    rdl:        X('Romanian deadlift', 'hinge', 'hinge', [['barbell']]),
+    deadlift:   X('Deadlift', 'hinge', 'deadlift', [['barbell']]),
+    dbrdl:      X('Dumbbell Romanian deadlift', 'hinge', 'hinge', [['dumbbells'], ['kettlebell']]),
+    kbswing:    X('Kettlebell swing', 'hinge', 'hinge', [['kettlebell']], { lo: 130, gap: 6, maxRep: 5, form: null }),
+    bandgm:     X('Band good morning', 'hinge', 'hinge', [['bands']]),
+    slrdl:      X('Single-leg Romanian deadlift', 'hinge', 'hinge', undefined, { signal: 'hipMin', form: null }),
+    bench:      X('Bench press', 'hpush', 'bench', [['barbell', 'bench']]),
+    dbbench:    X('Dumbbell bench press', 'hpush', 'bench', [['dumbbells', 'bench']]),
+    inclinedb:  X('Incline dumbbell press', 'hpush', 'bench', [['dumbbells', 'incline']]),
+    dip:        X('Dip', 'hpush', 'dip', [['dipbars']]),
+    floorpress: X('Dumbbell floor press', 'hpush', 'bench', [['dumbbells']]),
+    pushup:     X('Push-up', 'hpush', 'pushup'),
+    ohp:        X('Overhead press', 'vpush', 'press', [['barbell']]),
+    dbohp:      X('Dumbbell shoulder press', 'vpush', 'press', [['dumbbells'], ['kettlebell']]),
+    bandohp:    X('Band overhead press', 'vpush', 'press', [['bands']]),
+    pike:       X('Pike push-up', 'vpush', 'pushup', undefined, { form: null }),
+    row:        X('Barbell row', 'hpull', 'row', [['barbell']]),
+    dbrow:      X('One-arm dumbbell row', 'hpull', 'row', [['dumbbells'], ['kettlebell']], { signal: 'elbowMin' }),
+    cablerow:   X('Seated cable row', 'hpull', 'row', [['cable']], { form: null }),
+    invrow:     X('Inverted row', 'hpull', 'row', [['barbell', 'rack']], { form: null }),
+    bandrow:    X('Band row', 'hpull', 'row', [['bands']], { form: null }),
+    tablerow:   X('Inverted row under a sturdy table', 'hpull', 'row', undefined, { form: null }),
+    pullup:     X('Pull-up', 'vpull', 'pull', [['pullupbar']]),
+    chinup:     X('Chin-up', 'vpull', 'pull', [['pullupbar']]),
+    pulldown:   X('Lat pulldown', 'vpull', 'pull', [['cable']]),
+    bandpull:   X('Band pulldown', 'vpull', 'pull', [['bands']]),
+    lateral:    X('Lateral raise', 'delts', 'raise', [['dumbbells'], ['cable'], ['bands']]),
+    curl:       X('Biceps curl', 'biceps', 'curl', [['dumbbells'], ['barbell'], ['cable'], ['bands'], ['kettlebell']]),
+    ohext:      X('Overhead triceps extension', 'triceps', 'overhead', [['dumbbells'], ['cable'], ['bands']]),
+    pushdown:   X('Triceps pushdown', 'triceps', 'pushdown', [['cable'], ['bands']]),
+    diamond:    X('Close-grip push-up', 'triceps', 'pushup'),
+    calf:       X('Calf raise (count by hand)', 'calves', 'manual'),
+    legraise:   X('Hanging leg raise', 'core', 'legraise', [['pullupbar']]),
+    plank:      X('Plank or ab work (by hand)', 'core', 'manual'),
+    manual:     X('Other (count by hand)', null, 'manual'),
+  };
+  const COMPOUND = new Set(['knee', 'hinge', 'hpush', 'vpush', 'hpull', 'vpull']);
+
+  function available(id, equip) {
+    const d = EX[id]; if (!d || !d.eq) return true;
+    const has = new Set(equip); if (has.has('incline')) has.add('bench');
+    return d.eq.some((set) => set.every((e) => has.has(e)));
+  }
+  /* What is missing for a lift: the shortest equipment set, as labels. */
+  function lacking(id, equip) {
+    const d = EX[id]; if (available(id, equip)) return [];
+    const has = new Set(equip); if (has.has('incline')) has.add('bench');
+    return d.eq.map((set) => set.filter((e) => !has.has(e))).sort((a, b) => a.length - b.length)[0].map((e) => EQUIP[e]);
+  }
+  const options = (pattern, equip) => Object.keys(EX).filter((id) => EX[id].pattern === pattern && available(id, equip));
+
+  /* Split templates: each slot is [pattern, n] = the n-th best lift the equipment allows for that pattern. */
+  const TEMPLATES = {
+    3: [['Full body A', [['knee', 0], ['hpush', 0], ['hpull', 0], ['delts', 0], ['biceps', 0], ['core', 0]]],
+        ['Full body B', [['hinge', 0], ['vpush', 0], ['vpull', 0], ['knee', 1], ['triceps', 0], ['calves', 0]]],
+        ['Full body C', [['knee', 0], ['hpush', 1], ['vpull', 1], ['hinge', 1], ['delts', 0], ['biceps', 0], ['triceps', 1]]]],
+    4: [['Upper A', [['hpush', 0], ['hpull', 0], ['vpush', 0], ['vpull', 0], ['biceps', 0], ['triceps', 0]]],
+        ['Lower A', [['knee', 0], ['hinge', 0], ['knee', 1], ['calves', 0], ['core', 0]]],
+        ['Upper B', [['vpush', 0], ['vpull', 0], ['hpush', 1], ['hpull', 1], ['delts', 0], ['triceps', 1], ['biceps', 0]]],
+        ['Lower B', [['hinge', 0], ['knee', 0], ['hinge', 1], ['calves', 0], ['core', 0]]]],
+    5: [['Push', [['hpush', 0], ['vpush', 0], ['hpush', 1], ['delts', 0], ['triceps', 0]]],
+        ['Pull', [['vpull', 0], ['hpull', 0], ['vpull', 1], ['biceps', 0], ['core', 0]]],
+        ['Legs', [['knee', 0], ['hinge', 0], ['knee', 1], ['calves', 0]]],
+        ['Upper', [['vpush', 0], ['hpull', 1], ['hpush', 1], ['vpull', 0], ['delts', 0], ['biceps', 0], ['triceps', 1]]],
+        ['Lower', [['hinge', 0], ['knee', 0], ['hinge', 1], ['calves', 0], ['core', 0]]]],
+  };
+  /* Sets, rep range and rest for one slot. loaded: false for bodyweight and band lifts, where reps go higher because load is fixed. */
+  function dose(goal, compound, firstOfDay, loaded) {
+    let d;
+    if (goal === 'strength') d = compound ? (firstOfDay ? { sets: 4, lo: 3, hi: 6, rest: 210 } : { sets: 3, lo: 5, hi: 8, rest: 180 }) : { sets: 2, lo: 8, hi: 12, rest: 90 };
+    else if (goal === 'general') d = compound ? { sets: 2, lo: 8, hi: 12, rest: 120 } : { sets: 2, lo: 10, hi: 15, rest: 60 };
+    else d = compound ? { sets: 3, lo: 6, hi: 10, rest: 150 } : { sets: goal === 'fatloss' ? 2 : 3, lo: 10, hi: 15, rest: 75 };
+    if (!loaded) { d.lo = Math.max(d.lo, 8); d.hi = Math.max(d.hi, 20); }
+    return d;
+  }
+  function buildSplit(days, goal, equip) {
+    const gaps = [], plan = [];
+    for (const [name, slots] of TEMPLATES[days] || TEMPLATES[4]) {
+      const exercises = []; let first = true;
+      for (const [pattern, n] of slots) {
+        const all = options(pattern, equip), free = all.filter((id) => !exercises.some((e) => e.id === id));
+        if (!all.length) { if (!gaps.includes(PATTERNS[pattern])) gaps.push(PATTERNS[pattern]); continue; }
+        if (!free.length) continue;
+        const id = free[Math.min(n, free.length - 1)], d = EX[id];
+        const loaded = !!d.eq && !d.eq.every((set) => set.length === 1 && set[0] === 'bands');
+        exercises.push({ id, weight: 0, ...dose(goal, COMPOUND.has(pattern) && !d.manual, first && COMPOUND.has(pattern), loaded) });
+        if (COMPOUND.has(pattern)) first = false;
+      }
+      plan.push({ name, exercises });
+    }
+    return { plan, gaps };
+  }
   const NEED_NAME = { sh: 'shoulders', el: 'elbows', wr: 'wrists', hip: 'hips', kn: 'knees', an: 'ankles' };
 
   function missing(def, m) {
     if (!m || def.manual) return [];
-    return def.needs.filter((k) => m.seen[k] < 0.5).map((k) => NEED_NAME[k]);
+    return def.joints.filter((k) => m.seen[k] < 0.5).map((k) => NEED_NAME[k]);
   }
 
   /* Form rules. Each returns cues for one finished rep: {id, sev: 'fix' | 'good', text, say}. */
@@ -297,8 +413,14 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
       if (view !== 'front' && r.agg.lean.max - r.agg.lean.min > 15) out.push(fix('lean', 'Leaning back', 'Ribs down, squeeze glutes'));
       return out;
     },
-    bench(r) {
+    lockout(r) {
       return r.agg.elbow.max < 155 ? [fix('lockout', 'Elbows not locked out', 'Lock it out')] : [];
+    },
+    dip(r) {
+      const out = [];
+      if (r.agg.elbow.min > 95) out.push(fix('depth', 'Not low enough', 'Go lower'));
+      if (r.agg.elbow.max < 155) out.push(fix('lockout', 'Elbows not locked out', 'Lock it out'));
+      return out;
     },
     row(r) {
       const out = [];
@@ -385,7 +507,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
             const p1 = this.ext.t - this.tLeave, p2 = t - this.ext.t;
             const rep = { n: this.reps.length + 1, t, dur, ext: this.ext.v, agg: this.agg,
               ecc: d.first === 'ecc' ? p1 : p2, con: d.first === 'ecc' ? p2 : p1 };
-            rep.cues = FORM[this.exId] ? FORM[this.exId](rep, this.view) : [];
+            rep.cues = FORM[d.form] ? FORM[d.form](rep, this.view) : [];
             if (!this.reps.length) { this.tStart = dur < 8 ? this.tLeave : t - 4; ev.push({ type: 'setStart', t: this.tStart }); }
             this.reps.push(rep); ev.push({ type: 'rep', rep }); this.settle = { rep, t0: t };
           }
@@ -438,14 +560,14 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     return { say: parts.join(' '), nextWeight: next };
   }
 
-  root.GymEngine = { J, EX, measure, missing, Tracker, ruleCoach, ang };
+  root.GymEngine = { J, EX, EQUIP, PATTERNS, measure, missing, Tracker, ruleCoach, ang, available, lacking, options, buildSplit };
 })(typeof window !== 'undefined' ? window : globalThis);
 </script>
 
 <script id="app">
 (function () {
   'use strict';
-  const { EX, measure, missing, Tracker, ruleCoach } = window.GymEngine;
+  const { EX, EQUIP, PATTERNS, measure, missing, Tracker, ruleCoach, available, lacking, options, buildSplit } = window.GymEngine;
   const $ = (id) => document.getElementById(id);
   const el = (tag, attrs = {}, ...kids) => {
     const n = document.createElement(tag);
@@ -464,7 +586,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   const ex = (id, sets, lo, hi, weight, rest) => ({ id, sets, lo, hi, weight, rest });
   const DEFAULTS = {
     example: true,
-    profile: { goal: 'muscle', level: 'intermediate', units: 'lb', bodyweight: '', height: '', notes: '', body: null },
+    profile: { goal: 'muscle', level: 'intermediate', units: 'lb', bodyweight: '', height: '', notes: '', body: null, equipment: ['barbell', 'rack', 'bench', 'dumbbells', 'pullupbar'], equipmentSet: false, days: 4 },
     settings: { apiKey: '', model: 'claude-opus-5-5', voice: 'all', mirror: true, accuracy: 'lite', readBar: true, camera: '' },
     plan: [
       { key: uid(), name: 'Push', exercises: [ex('ohp', 3, 6, 8, 95, 150), ex('bench', 3, 6, 10, 135, 150), ex('lateral', 3, 12, 15, 15, 75), ex('pushup', 2, 10, 20, 0, 90)] },
@@ -507,6 +629,16 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     renderHud(); renderPane();
   }
   function persistDraft() { S.draft = sess; save(); }
+  /* Replace a lift with the next one for the same muscles that the equipment allows. */
+  function nextOption(id) {
+    const o = options(EX[id].pattern, S.profile.equipment); if (!o.length) return null;
+    const n = o[(o.indexOf(id) + 1) % o.length]; return n === id ? null : n;
+  }
+  function swapItem(i) {
+    const q = sess.items[i], n = nextOption(q.id); if (!n || q.done.length) return;
+    q.id = n; q.weight = 0; persistDraft();
+    if (i === sess.idx) selectItem(i); else renderPane();
+  }
   function finishSession() {
     if (!sess) return;
     if (tracker) { const e = tracker.endNow(clock()); if (e) onSetEnd(e); }
@@ -621,7 +753,7 @@ Reply with JSON only: {"say": "<at most 2 short sentences to speak aloud>", "nex
     const target = coachMsg;
     try {
       const prior = S.history.filter((h) => h.items.some((x) => x.id === it.id)).slice(-1)[0];
-      const data = { profile: { ...S.profile, body: S.profile.body || undefined }, exercise: EX[it.id].name, target: { sets: it.sets, reps: [it.lo, it.hi], rest_seconds: it.rest },
+      const data = { profile: { ...S.profile, body: S.profile.body || undefined, equipment: S.profile.equipment.map((e) => EQUIP[e]) }, exercise: EX[it.id].name, target: { sets: it.sets, reps: [it.lo, it.hi], rest_seconds: it.rest },
         sets_today: it.done.map((d) => ({ reps: d.reps, weight: d.weight, unit: d.unit, rest_before_s: d.rest, avg_lowering_s: d.ecc, avg_lifting_s: d.con, slow: d.slow, form_flags: Object.values(d.fixes).map((f) => `${f.text} (${f.n} reps)`), per_rep: d.perRep })),
         last_session: prior ? prior.items.find((x) => x.id === it.id).done.map((d) => `${d.weight}x${d.reps}`) : null, sets_left: Math.max(0, it.sets - it.done.length) };
       const r = await claude(COACH_SYS, JSON.stringify(data));
@@ -830,6 +962,8 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
     out.push(el('h3', {}, 'Today'));
     out.push(el('ol', { class: 'queue' }, sess.items.map((q, i) => el('li', { class: i === sess.idx ? 'current' : '' },
       el('div', { class: 'q-head' }, el('button', { class: 'q-name', onclick: () => { const e = tracker.endNow(clock()); if (e) onEvents([e]); selectItem(i); } }, EX[q.id].name), el('span', { class: 'q-target' }, targetText(q) + (q.weight ? ' @ ' + q.weight : ''))),
+      !available(q.id, S.profile.equipment) ? el('span', { class: 'note err' }, 'Needs ' + lacking(q.id, S.profile.equipment).join(' and ').toLowerCase()) : null,
+      !q.done.length && EX[q.id].pattern && nextOption(q.id) ? el('div', {}, el('button', { class: 'btn small', onclick: () => swapItem(i) }, 'Swap for ' + EX[nextOption(q.id)].name)) : null,
       el('div', { class: 'sets' }, q.done.map((d) => el('span', { class: 'setchip' }, setText(d))), Array.from({ length: Math.max(0, q.sets - q.done.length) }, () => el('span', { class: 'setchip todo' }, '·')))))));
     out.push(el('p', { class: 'note' }, 'Form cues are camera estimates from one angle. Treat them as prompts, and use your own judgement on heavy lifts.'));
     return out;
@@ -838,16 +972,31 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
   function panePlan() {
     const touch = () => { S.example = false; save(); };
     const num = (label, obj, key, min) => el('label', {}, label, el('input', { type: 'number', min, value: obj[key], id: 'p-' + uid(), oninput: (e) => { obj[key] = Math.max(min, +e.target.value || 0); touch(); } }));
+    const eq = S.profile.equipment, goalName = { muscle: 'build muscle', strength: 'get stronger', fatloss: 'lose fat, keep muscle', general: 'general fitness' }[S.profile.goal];
+    const exOptions = (x) => [...Object.entries(PATTERNS).map(([pat, label]) => {
+      const ids = Object.keys(EX).filter((id) => EX[id].pattern === pat && (available(id, eq) || id === x.id));
+      return ids.length ? el('optgroup', { label }, ids.map((id) => el('option', { value: id, selected: id === x.id }, EX[id].name + (EX[id].beta ? ' (beta)' : '') + (available(id, eq) ? '' : ' (missing equipment)')))) : null;
+    }), el('option', { value: 'manual', selected: x.id === 'manual' }, EX.manual.name)];
     return [el('h2', {}, 'Your split'),
-      S.example ? el('p', { class: 'note' }, 'Example split with example weights. Edit anything and it becomes yours.') : el('p', { class: 'note' }, 'Changes apply to the next workout you start.'),
+      el('div', { class: 'card' }, el('h3', {}, 'Build one for me'),
+        el('p', { class: 'note' }, `Uses your goal (${goalName}) and your equipment (${eq.length ? eq.map((e) => EQUIP[e].toLowerCase()).join(', ') : 'bodyweight only'}). Change either in the You tab.`),
+        el('div', { class: 'row' },
+          el('select', { id: 'buildDays', 'aria-label': 'Training days per week', class: 'btn small', onchange: (e) => { S.profile.days = +e.target.value; save(); } }, [3, 4, 5].map((n) => el('option', { value: n, selected: S.profile.days === n }, n + ' days a week'))),
+          el('button', { class: 'btn small primary', id: 'buildBtn', onclick: (e) => {
+            if (!e.target.dataset.sure && !S.example) { e.target.dataset.sure = 1; e.target.textContent = 'Replace my current split?'; return; }
+            const r = buildSplit(S.profile.days, S.profile.goal, eq);
+            S.plan = r.plan.map((d) => ({ key: uid(), ...d })); S.example = false; S.buildGaps = r.gaps; save(); renderPane();
+          } }, 'Build my split')),
+        S.buildGaps && S.buildGaps.length ? el('p', { class: 'note err' }, `Nothing in your equipment trains these well: ${S.buildGaps.join(', ').toLowerCase()}. A pull-up bar or a set of bands covers most gaps.`) : null),
+      S.example ? el('p', { class: 'note' }, 'Below is an example split with example weights. Edit anything and it becomes yours.') : el('p', { class: 'note' }, 'Changes apply to the next workout you start. Weights of 0 are filled in from your first session.'),
       ...S.plan.map((d, di) => el('div', { class: 'day' },
         el('div', { class: 'row' }, el('input', { class: 'day-name', style: 'flex:1', value: d.name, 'aria-label': 'Day name', id: 'dn-' + d.key, oninput: (e) => { d.name = e.target.value; touch(); } }),
           el('button', { class: 'btn small danger', onclick: () => { S.plan.splice(di, 1); touch(); renderPane(); } }, 'Remove day')),
         ...d.exercises.map((x, xi) => el('div', { class: 'plan-ex' },
-          el('select', { 'aria-label': 'Exercise', id: 'ps-' + uid(), onchange: (e) => { x.id = e.target.value; touch(); } }, Object.entries(EX).map(([id, def]) => el('option', { value: id, selected: id === x.id }, def.name + (def.beta ? ' (beta)' : '')))),
+          el('select', { 'aria-label': 'Exercise', id: 'ps-' + uid(), onchange: (e) => { x.id = e.target.value; touch(); renderPane(); } }, exOptions(x)),
           el('button', { class: 'btn small x', 'aria-label': 'Remove exercise', onclick: () => { d.exercises.splice(xi, 1); touch(); renderPane(); } }, '×'),
           el('div', { class: 'nums' }, num('Sets', x, 'sets', 1), num('Min', x, 'lo', 1), num('Max', x, 'hi', 1), num(S.profile.units, x, 'weight', 0), num('Rest s', x, 'rest', 0)))),
-        el('button', { class: 'btn small', onclick: () => { d.exercises.push(ex('squat', 3, 6, 8, 0, 120)); touch(); renderPane(); } }, '+ Exercise'))),
+        el('button', { class: 'btn small', onclick: () => { d.exercises.push(ex(options('knee', eq)[0] || 'manual', 3, 6, 10, 0, 120)); touch(); renderPane(); } }, '+ Exercise'))),
       el('button', { class: 'btn', onclick: () => { S.plan.push({ key: uid(), name: 'New day', exercises: [] }); touch(); renderPane(); } }, '+ Day')];
   }
 
@@ -878,6 +1027,11 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
         field('Units', sel(P, 'units', [['lb', 'Pounds'], ['kg', 'Kilograms']], () => { renderHud(); }))),
       el('div', { class: 'grid2' }, field('Bodyweight', el('input', bind(P, 'bodyweight', { inputmode: 'decimal' }))), field('Height', el('input', bind(P, 'height')))),
       field('Injuries, limits, anything the coach should know', el('textarea', bind(P, 'notes', { rows: 3 }))),
+      el('div', { class: 'card' }, el('h3', {}, 'Your equipment'),
+        P.equipmentSet ? null : el('p', { class: 'note' }, 'These ticks are a guess. Tick what you actually have; bodyweight lifts are always available.'),
+        el('div', { class: 'checks' }, Object.entries(EQUIP).map(([id, label]) => el('label', {}, el('input', { type: 'checkbox', id: 'eq-' + id, checked: P.equipment.includes(id), onchange: (e) => {
+          P.equipment = e.target.checked ? [...P.equipment, id] : P.equipment.filter((x) => x !== id); P.equipmentSet = true; save(); renderPane(); } }), ' ' + label))),
+        el('p', { class: 'note' }, `${Object.keys(EX).filter((id) => EX[id].pattern && available(id, P.equipment)).length} of ${Object.keys(EX).filter((id) => EX[id].pattern).length} lifts available. Spotter only offers lifts you can do, and the Split tab can build a split from this list.`)),
       el('div', { class: 'card' }, el('h3', {}, 'Proportions measured by camera'),
         b ? el('div', { class: 'kv' }, el('div', {}, el('b', {}, String(b.femur_to_torso)), el('span', {}, 'femur : torso')), el('div', {}, el('b', {}, String(b.shin_to_femur)), el('span', {}, 'shin : femur')), el('div', {}, el('b', {}, String(b.arm_to_torso)), el('span', {}, 'arm : torso')))
           : el('p', { class: 'note' }, 'Stand tall in full view for a couple of seconds and Spotter measures your limb proportions.'),

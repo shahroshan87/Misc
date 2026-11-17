@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const html = fs.readFileSync(fileURLToPath(new URL('../index.html', import.meta.url)), 'utf8');
 const src = html.match(/<script id="engine">([\s\S]*?)<\/script>/)[1];
 new Function(src)();
-const { EX, Tracker, measure, ruleCoach } = globalThis.GymEngine;
+const { EX, EQUIP, PATTERNS, Tracker, measure, ruleCoach, available, lacking, options, buildSplit } = globalThis.GymEngine;
 
 const SEEN = { sh: 1, el: 1, wr: 1, hip: 1, kn: 1, an: 1 };
 const base = { knee: 175, hip: 175, elbow: 170, shoulder: 10, thigh: 85, lean: 5, bodyLine: 175, kneeRatio: 1, wristsUp: 0, view: 'side', seen: SEEN };
@@ -121,5 +121,32 @@ function* chain(...gens) { for (const g of gens) yield* g; }
   assert.equal(low.nextWeight, 165); assert.match(low.say, /close to your limit/);
   assert.match(ruleCoach(mk(7, 0.05, { depth: { text: 'Just above parallel', n: 4 } }), { lo: 6, hi: 8 }, 185, 5).say, /just above parallel, on 4 of 7/);
 }
-for (const [id, d] of Object.entries(EX)) if (!d.manual) assert.ok(d.hi > d.lo && d.needs.length && d.maxRep, id);
+// 11. Equipment: lifts are offered only when the equipment allows, and built splits respect that.
+{
+  const all = Object.keys(EQUIP);
+  for (const pat of Object.keys(PATTERNS)) assert.ok(options(pat, all).length, 'full gym covers ' + pat);
+  assert.equal(available('squat', ['barbell']), false);
+  assert.deepEqual(lacking('squat', ['barbell']), ['Squat rack or stands']);
+  assert.equal(available('dbbench', ['dumbbells', 'incline']), true, 'an incline bench also works flat');
+  assert.equal(available('pushup', []), true);
+  for (const days of [3, 4, 5]) for (const goal of ['muscle', 'strength', 'fatloss', 'general']) for (const eq of [all, [], ['dumbbells', 'bench'], ['bands'], ['pullupbar'], ['kettlebell']]) {
+    const { plan, gaps } = buildSplit(days, goal, eq);
+    assert.equal(plan.length, days);
+    for (const d of plan) {
+      assert.ok(d.exercises.length >= 2, `${days}d ${goal} [${eq}] ${d.name} has ${d.exercises.length} lifts`);
+      assert.equal(new Set(d.exercises.map((e) => e.id)).size, d.exercises.length, 'no lift twice in a day');
+      for (const e of d.exercises) { assert.ok(available(e.id, eq), e.id + ' needs missing equipment'); assert.ok(e.sets >= 2 && e.lo < e.hi && e.rest > 0); }
+    }
+    if (eq === all) assert.deepEqual(gaps, []);
+  }
+  const bw = buildSplit(4, 'muscle', []);
+  assert.deepEqual(bw.gaps.sort(), ['Biceps', 'Lats', 'Side delts'].sort());
+  assert.ok(bw.plan.flatMap((d) => d.exercises).filter((e) => !EX[e.id].manual).every((e) => e.hi >= 20), 'bodyweight lifts get a higher rep ceiling');
+  const home = buildSplit(4, 'muscle', ['barbell', 'rack', 'bench', 'dumbbells', 'pullupbar']);
+  assert.deepEqual(home.plan[0].exercises.map((e) => e.id).slice(0, 4), ['bench', 'row', 'ohp', 'pullup']);
+  const weekly = {};
+  for (const d of home.plan) for (const e of d.exercises) weekly[EX[e.id].pattern] = (weekly[EX[e.id].pattern] || 0) + e.sets;
+  console.log('weekly direct sets, 4-day muscle split, typical home gym:', JSON.stringify(weekly));
+}
+for (const [id, d] of Object.entries(EX)) if (!d.manual) assert.ok(d.hi > d.lo && d.joints.length && d.maxRep, id);
 console.log('engine: all checks passed');
