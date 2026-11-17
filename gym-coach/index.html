@@ -350,12 +350,17 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
         ['Upper', [['vpush', 0], ['hpull', 1], ['hpush', 1], ['vpull', 0], ['delts', 0], ['biceps', 0], ['triceps', 1]]],
         ['Lower', [['hinge', 0], ['knee', 0], ['hinge', 1], ['calves', 0], ['core', 0]]]],
   };
-  /* Sets, rep range and rest for one slot. loaded: false for bodyweight and band lifts, where reps go higher because load is fixed. */
+  /* Sets, rep range and rest for one slot. Sources are in reports/Muscle gain methods by goal.md.
+     Muscle: aims at 10+ weekly sets per muscle once presses and pulls are counted at half for the arms and shoulders they also work
+     (ACSM 2026 position stand; Pelland et al.). Rests over 60 s help growth with no clear gain past 90 s (Singer 2024); compound
+     rests are longer by convention. Strength: heavier loads, longer rests. Rep ranges per lift type are coaching convention.
+     loaded: false for bodyweight and band lifts, where reps go higher because load is fixed (light loads grow muscle when sets
+     end near failure: Lopez 2021). */
   function dose(goal, compound, firstOfDay, loaded) {
     let d;
     if (goal === 'strength') d = compound ? (firstOfDay ? { sets: 4, lo: 3, hi: 6, rest: 210 } : { sets: 3, lo: 5, hi: 8, rest: 180 }) : { sets: 2, lo: 8, hi: 12, rest: 90 };
     else if (goal === 'general') d = compound ? { sets: 2, lo: 8, hi: 12, rest: 120 } : { sets: 2, lo: 10, hi: 15, rest: 60 };
-    else d = compound ? { sets: 3, lo: 6, hi: 10, rest: 150 } : { sets: goal === 'fatloss' ? 2 : 3, lo: 10, hi: 15, rest: 75 };
+    else d = compound ? { sets: firstOfDay ? 4 : 3, lo: 6, hi: 10, rest: 150 } : { sets: goal === 'fatloss' ? 2 : 3, lo: 10, hi: 15, rest: 90 };
     if (!loaded) { d.lo = Math.max(d.lo, 8); d.hi = Math.max(d.hi, 20); }
     return d;
   }
@@ -554,7 +559,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     const top = Object.values(set.fixes).sort((a, b) => b.n - a.n)[0];
     if (top) parts.push(`Fix first: ${top.text.toLowerCase()}, on ${top.n} of ${reps} reps.`);
     if (set.slow != null) {
-      if (set.slow >= 0.5) parts.push(`Your last rep was ${Math.round(set.slow * 100)} percent slower than your first, so that was close to your limit.`);
+      if (set.slow >= 0.5) parts.push(`Your last rep was ${Math.round(set.slow * 100)} percent slower than your first, which usually means you were close to your limit.`);
       else if (set.slow < 0.15 && (!target || reps >= target.lo)) parts.push('Rep speed barely dropped, so you had more in you.');
     }
     return { say: parts.join(' '), nextWeight: next };
