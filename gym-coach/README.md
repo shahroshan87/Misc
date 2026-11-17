@@ -30,6 +30,14 @@ All data stays in the browser's local storage.
 
 `reports/Muscle gain methods by goal.md` is the evidence review behind the split builder and targets. The notes it was written from are in `research_notes/`.
 
+## Session recordings
+
+Each workout with the camera on is recorded: the joint angles measured about 15 times a second, every count, cue and set, the lifter's flags and corrections, and a few still photos. No video. The summary screen and the Log tab save it as a JSON file; the last five stay in the browser.
+
+`node gym-coach/test/replay.mjs <recording.json> [--photos <dir>] [--events]` replays a recording through the current tracking engine and compares the result with what happened in the session.
+
+Recordings with photos show the lifter and their home. Commit only the copy saved without photos.
+
 ## Tests
 
-`node gym-coach/test/engine.test.mjs` runs the tracking engine against synthetic joint-angle traces.
+`node gym-coach/test/engine.test.mjs` runs the tracking engine against synthetic joint-angle traces and a synthetic recording.

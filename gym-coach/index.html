@@ -78,6 +78,9 @@ button { cursor: pointer; }
 .bar i { display: block; height: 100%; width: 0; background: currentColor; }
 .hold { position: absolute; left: 50%; top: 38%; transform: translateX(-50%); width: min(360px, 70%); background: rgb(18 22 28 / 0.9); border: 1px solid var(--track); border-radius: 12px; padding: 12px 16px; text-align: center; font: 600 22px/1.1 var(--display); text-transform: uppercase; color: var(--track); }
 .hold .bar { margin: 10px 0 0; }
+.flagsheet { position: absolute; right: 16px; top: 64px; width: min(360px, calc(100% - 32px)); background: rgb(18 22 28 / 0.95); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 10px; z-index: 2; }
+.flagsheet input, .gate textarea { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; color: var(--fg); width: 100%; }
+.flagsheet .pill { font-size: 13px; padding: 7px 11px; }
 .app.focus { grid-template-columns: minmax(0, 1fr); } .app.focus .rail { display: none; }
 .app.setup { grid-template-columns: minmax(0, 1fr); } .app.setup .rail { display: none; }
 .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
@@ -205,7 +208,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
           </div>
         </div>
         <div class="hud-right">
-          <div class="row"><span class="chip idle" id="stateChip">Idle</span><button class="btn small" id="panelToggle">Hide panel</button></div>
+          <div class="row"><span class="chip idle" id="stateChip">Idle</span><button class="btn small" id="flagBtn">Flag a problem</button><button class="btn small" id="panelToggle">Hide panel</button></div>
           <div class="track-note" id="trackNote"></div>
         </div>
       </div>
@@ -222,6 +225,12 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
         </div>
         <div class="hint" id="hint"></div>
         <div class="big timer" id="timerBox" hidden><span id="timerNum">0:00</span><div class="bar"><i id="timerBar"></i></div><small id="timerLabel">rest</small><div class="row restadj"><button class="btn small" id="restLess">− 15 s</button><button class="btn small" id="restMore">+ 15 s</button></div></div>
+      </div>
+      <div class="flagsheet" id="flagSheet" hidden>
+        <b>What went wrong?</b>
+        <div class="pills" id="flagReasons"></div>
+        <input id="flagNote" placeholder="Add a note first, if you like" aria-label="Note for this flag">
+        <div class="row"><button class="btn small" id="flagCancel">Cancel</button></div>
       </div>
       <div class="hold" id="hold" hidden><span id="holdText">Hold to end the set</span><div class="bar"><i id="holdBar"></i></div></div>
     </div>
@@ -679,14 +688,32 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     return out;
   }
 
-  root.GymEngine = { weeklySets, J, EX, EQUIP, PATTERNS, measure, missing, Tracker, ruleCoach, ang, available, lacking, options, buildSplit };
+  /* Session recordings: one compact row per camera frame, so a real session can be replayed through the tracker later. */
+  const FRAME_FIELDS = ['knee', 'kneeMin', 'hip', 'hipMin', 'elbow', 'elbowMin', 'shoulder', 'thigh', 'lean', 'bodyLine', 'kneeRatio', 'wristsUp', 'handsHigh', 'wristDrop', 'raise'];
+  const FINE = new Set(['kneeRatio', 'wristDrop']), VIEWS = ['front', 'angled', 'side'], SEEN_KEYS = ['sh', 'el', 'wr', 'hip', 'kn', 'an'];
+  function packFrame(t, m) {
+    if (!m) return [t];
+    const row = [t];
+    for (const k of FRAME_FIELDS) { const v = m[k]; row.push(v == null ? null : FINE.has(k) ? Math.round(v * 100) / 100 : Math.round(v * 10) / 10); }
+    row.push(VIEWS.indexOf(m.view)); for (const k of SEEN_KEYS) row.push(Math.round(m.seen[k] * 10));
+    return row;
+  }
+  function unpackFrame(row) {
+    if (row.length < 2) return { t: row[0], m: null };
+    const m = {}, o = 1 + FRAME_FIELDS.length;
+    FRAME_FIELDS.forEach((k, i) => { m[k] = row[1 + i]; });
+    m.view = VIEWS[row[o]]; m.seen = {}; SEEN_KEYS.forEach((k, i) => { m.seen[k] = row[o + 1 + i] / 10; });
+    return { t: row[0], m };
+  }
+
+  root.GymEngine = { FRAME_FIELDS, packFrame, unpackFrame, weeklySets, J, EX, EQUIP, PATTERNS, measure, missing, Tracker, ruleCoach, ang, available, lacking, options, buildSplit };
 })(typeof window !== 'undefined' ? window : globalThis);
 </script>
 
 <script id="app">
 (function () {
   'use strict';
-  const { weeklySets, EX, EQUIP, PATTERNS, measure, missing, Tracker, ruleCoach, available, lacking, options, buildSplit } = window.GymEngine;
+  const { packFrame, weeklySets, EX, EQUIP, PATTERNS, measure, missing, Tracker, ruleCoach, available, lacking, options, buildSplit } = window.GymEngine;
   const $ = (id) => document.getElementById(id);
   const el = (tag, attrs = {}, ...kids) => {
     const n = document.createElement(tag);
@@ -730,7 +757,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
       items: day.exercises.map((e) => ({ ...e, done: [] })) };
     restFrom = null; lastRest = null; coachMsg = null; lastSet = null; summary = null; dots = [];
     if (running) { $('gate').hidden = true; $('hud').hidden = false; }
-    selectItem(0); persistDraft(); renderGate();
+    selectItem(0); persistDraft(); renderGate(); recStart();
   }
   const item = () => (sess ? sess.items[sess.idx] : null);
   function lastWeightFor(id) {
@@ -742,7 +769,8 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   }
   function selectItem(i) {
     sess.idx = i; const it = item();
-    tracker = new Tracker(it.id); wasReady = false; viewBadSince = null; viewTold = false;
+    tracker = new Tracker(it.id); wasReady = false; viewBadSince = null; viewTold = false; posPhoto = false;
+    recEvent('lift', { id: it.id, idx: i, done: it.done.length });
     const prev = it.done.length ? it.done[it.done.length - 1].weight : null;
     setWeight(prev != null ? prev : (it.weight || lastWeightFor(it.id) || 0), prev != null ? '' : (it.weight ? 'from your split' : ''));
     phase = restFrom != null ? 'rest' : 'ready';
@@ -756,7 +784,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   }
   function swapItem(i) {
     const q = sess.items[i], n = nextOption(q.id); if (!n || q.done.length) return;
-    q.id = n; q.weight = 0; persistDraft();
+    q.id = n; q.weight = 0; persistDraft(); recEvent('swap', { idx: i, to: n });
     if (i === sess.idx) selectItem(i); else renderPane();
   }
   const bestOf = (done) => done.reduce((b, d) => (!b || d.weight > b.weight || (d.weight === b.weight && d.reps > b.reps) ? d : b), null);
@@ -780,13 +808,15 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     const did = sess.items.some((i) => i.done.length);
     if (did) { summary = summarise(sess); S.history.push({ id: sess.id, date: sess.date, dayName: sess.dayName, items: sess.items.filter((i) => i.done.length).map((i) => ({ id: i.id, lo: i.lo, hi: i.hi, done: i.done })) }); }
     S.draft = null; save();
+    if (rec) { rec.ended = rt(); rec.summary = summary; lastRec = rec; rec = null; if (lastRec.frames.length) recStore(lastRec); else lastRec = null; }
+    $('flagSheet').hidden = true;
     sess = null; tracker = null; phase = 'idle'; restFrom = null; coachMsg = null; lastSet = null; dots = [];
     if (did) say('Workout saved.');
     $('gate').hidden = false; $('hud').hidden = true;
     renderGate(); renderHud(); renderPane();
   }
   function discardDraft() {
-    S.draft = null; save(); sess = null; tracker = null; phase = 'idle'; restFrom = null; coachMsg = null; lastSet = null;
+    S.draft = null; save(); sess = null; tracker = null; rec = null; phase = 'idle'; restFrom = null; coachMsg = null; lastSet = null;
     renderGate(); renderHud(); renderPane();
   }
 
@@ -812,6 +842,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   }
   function say(text, urgent) {
     if (S.settings.voice === 'off' || !('speechSynthesis' in window) || !text) return;
+    recEvent('say', { text });
     try {
       if (urgent) speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text), v = bestVoice();
@@ -836,9 +867,81 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     clearTimeout(cueTimer); cueTimer = setTimeout(() => { c.hidden = true; }, ms);
   }
 
+  /* ---------- Session recording ----------
+     Records what the camera measured and what Spotter decided, plus a few still photos, so a session can be reviewed
+     and replayed later. No video. Nothing leaves the browser unless the lifter saves the file. */
+  const BUILD = '2026-11-17e';
+  let rec = null, lastRec = null, recF = 0, recL = 0, recList = [], posPhoto = false, lastAlertRec = '';
+  const r2 = (x) => (x == null || !isFinite(x) ? null : Math.round(x * 100) / 100);
+  const rt = () => r2(clock() - rec.t0);
+  function recStart() {
+    if (rec || !sess || !running) return;
+    const P = S.profile;
+    rec = { v: 1, build: BUILD, started: new Date().toISOString(), t0: clock(), day: sess.dayName, ua: navigator.userAgent, video: [video.videoWidth, video.videoHeight],
+      settings: { accuracy: S.settings.accuracy, mirror: S.settings.mirror, voice: S.settings.voice, source: fileMode ? 'file' : 'camera' },
+      profile: { goal: P.goal, level: P.level, units: P.units, equipment: P.equipment, body: P.body },
+      plan: sess.items.map((i) => ({ id: i.id, sets: i.sets, lo: i.lo, hi: i.hi, rest: i.rest })),
+      fields: window.GymEngine.FRAME_FIELDS, frames: [], lm: [], events: [], photos: [], notes: '' };
+    recF = recL = 0; posPhoto = false; lastAlertRec = '';
+    const it = item(); if (it) recEvent('lift', { id: it.id, idx: sess.idx, done: it.done.length });
+  }
+  function recEvent(type, data) { if (rec) rec.events.push({ t: rt(), type, ...data }); }
+  const LM = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28, 0];
+  function recFrame(m, w) {
+    if (!rec) return; const t = clock();
+    if (t - recF >= 0.06) { recF = t; rec.frames.push(packFrame(rt(), m)); }
+    // Raw joint positions twice a second, for checking the angle maths itself.
+    if (w && t - recL >= 0.5) { recL = t; rec.lm.push([rt(), ...LM.flatMap((i) => [r2(w[i].x), r2(w[i].y), r2(w[i].z)])]); }
+  }
+  function recPhoto(why) {
+    if (!rec || !video.videoWidth || rec.photos.length >= 80) return;
+    try {
+      const c = document.createElement('canvas'), k = Math.min(1, 480 / video.videoWidth);
+      c.width = Math.round(video.videoWidth * k); c.height = Math.round(video.videoHeight * k);
+      c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+      rec.photos.push({ t: rt(), why, jpeg: c.toDataURL('image/jpeg', 0.6).split(',')[1] });
+    } catch (e) { /* photo skipped */ }
+  }
+  const idb = (mode, fn) => new Promise((res, rej) => {
+    const open = indexedDB.open('spotter', 1);
+    open.onupgradeneeded = () => open.result.createObjectStore('recs', { keyPath: 'started' });
+    open.onerror = () => rej(open.error);
+    open.onsuccess = () => { const tx = open.result.transaction('recs', mode), rq = fn(tx.objectStore('recs')); tx.oncomplete = () => res(rq && rq.result); tx.onerror = () => rej(tx.error); };
+  });
+  async function recStore(r) {
+    try {
+      await idb('readwrite', (st) => st.put(r));
+      const all = await idb('readonly', (st) => st.getAll());
+      for (const old of all.sort((a, b) => (a.started < b.started ? 1 : -1)).slice(5)) await idb('readwrite', (st) => st.delete(old.started));
+      await recLoad();
+    } catch (e) { /* kept in memory only */ }
+  }
+  async function recLoad() {
+    try { recList = (await idb('readonly', (st) => st.getAll())).sort((a, b) => (a.started < b.started ? 1 : -1)); } catch (e) { recList = lastRec ? [lastRec] : []; }
+    if (tab === 'log') renderPane();
+  }
+  const recSize = (r, photos) => { const n = JSON.stringify(photos ? r : { ...r, photos: [] }).length; return n > 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1e3)) + ' KB'; };
+  function recSave(r, photos) {
+    const out = photos ? r : { ...r, photos: [] }, name = `spotter-session-${r.started.slice(0, 16).replace(/[:T]/g, '-')}${photos ? '' : '-no-photos'}.json`;
+    const a = el('a', { href: URL.createObjectURL(new Blob([JSON.stringify(out)], { type: 'application/json' })), download: name }); a.click();
+  }
+  const recLine = (r) => `${Math.max(1, Math.round((r.ended || 0) / 60))} min · ${r.events.filter((e) => e.type === 'logged').length} sets · ${r.events.filter((e) => e.type === 'flag').length} flags · ${r.photos.length} photos`;
+  const FLAG_REASONS = ['Counted before I was ready', 'Missed reps', 'Counted extra reps', 'Ended the set too early', 'Did not end the set', 'Wrong form call', 'Something else'];
+  function flagOpen() { if (!rec) return; recPhoto('flag'); $('flagNote').value = ''; $('flagSheet').hidden = false; }
+  function flag(reason) {
+    const it = item();
+    recEvent('flag', { reason, note: $('flagNote').value.trim(), lift: it && it.id, phase, reps: tracker ? tracker.reps.length : 0 });
+    $('flagSheet').hidden = true; showCue('Flagged. Thanks', 'good', 1500);
+  }
+  $('flagReasons').replaceChildren(...FLAG_REASONS.map((r) => el('button', { class: 'pill', onclick: () => flag(r) }, r)));
+  $('flagBtn').onclick = flagOpen; $('flagCancel').onclick = () => { $('flagSheet').hidden = true; };
+
   /* ---------- Tracking events ---------- */
   function onEvents(evs) {
     for (const e of evs) {
+      if (rec) recEvent(e.type, e.type === 'rep' ? { n: e.rep.n, late: !!e.late, dur: r2(e.rep.dur), ecc: r2(e.rep.ecc), con: r2(e.rep.con), ext: r2(e.rep.ext), cues: e.rep.cues.map((c) => c.id) }
+        : e.type === 'setEnd' ? { reps: e.set.reps, dur: r2(e.set.dur), at: r2(e.t - rec.t0) } : e.type === 'setStart' ? { at: r2(e.t - rec.t0) } : {});
+      if (e.type === 'setStart') recPhoto('set start'); else if (e.type === 'cancel') recPhoto('dropped rep');
       if (e.type === 'setStart') onSetStart(e);
       else if (e.type === 'rep') onRep(e.rep, e.late);
       else if (e.type === 'maybe') { $('repNum').textContent = '1'; $('repNum').classList.add('maybe'); $('repLabel').textContent = 'keep going'; }
@@ -873,6 +976,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   }
   function onSetEnd(e) {
     const it = item(), set = e.set;
+    recEvent('logged', { id: it.id, reps: set.reps, weight: curWeight(), rest: lastRest == null ? null : Math.round(lastRest) });
     const log = { reps: set.reps, weight: curWeight(), unit: S.profile.units, rest: lastRest == null ? null : Math.round(lastRest), dur: Math.round(set.dur),
       ecc: set.ecc && +set.ecc.toFixed(2), con: set.con && +set.con.toFixed(2), slow: set.slow == null ? null : +set.slow.toFixed(2),
       fixes: set.fixes, perRep: set.perRep, weightSrc: pendingSrc || 'entered', tracked: set.tracked, at: Date.now() };
@@ -892,6 +996,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     if (!lastSet) return;
     const it = lastSet.item, i = it.done.indexOf(lastSet.log); if (i >= 0) it.done.splice(i, 1);
     const idx = sess.items.indexOf(it);
+    recPhoto('redo'); recEvent('redo', { id: it.id, reps: lastSet.log.reps });
     lastSet = null; coachMsg = null; restFrom = null; lastRest = null; dots = [];
     persistDraft(); selectItem(idx >= 0 ? idx : sess.idx);
     say('Okay, that set is removed. Go again when you are ready.');
@@ -902,7 +1007,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     const day = S.plan.find((d) => d.key === sess.dayKey), x = day && day.exercises[sess.idx];
     if (x && x.id === it.id) x.rest = it.rest;
     if (restFrom != null) restBeeped = clock() - restFrom >= it.rest;
-    persistDraft();
+    persistDraft(); recEvent('rest', { id: it.id, to: it.rest });
   }
 
   /* ---------- Claude (optional) ---------- */
@@ -996,6 +1101,7 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
       try { await navigator.wakeLock?.request('screen'); } catch (e) { /* screen may sleep */ }
       if (!sess) { if (S.draft) { sess = S.draft; selectItem(Math.min(sess.idx, sess.items.length - 1)); } else startSession(dayForStart()); }
       $('gateMsg').textContent = ''; if (innerWidth < 1100) setFocus(true);
+      recStart();
       renderHud(); renderPane(); loop();
     } catch (e) {
       const msg = e.name === 'NotAllowedError' ? 'Camera access was blocked. Allow the camera for this page in your browser, then try again.'
@@ -1050,6 +1156,7 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
       try { res = landmarker.detectForVideo(video, performance.now()); } catch (e) { /* skip frame */ }
       const p = res && res.landmarks && res.landmarks[0], w = res && res.worldLandmarks && res.worldLandmarks[0];
       lastM = p && w ? measure(w, p, video.videoWidth / video.videoHeight) : null;
+      recFrame(lastM, w);
       draw(p);
       if (lastM) sampleBody(lastM);
       if (tracker) { onEvents(tracker.update(clock(), lastM)); gesture(hooks.raise == null ? lastM : { raise: hooks.raise }); }
@@ -1069,6 +1176,7 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
     $('hold').hidden = false; $('holdBar').style.width = Math.min(100, k * 100) + '%'; $('holdText').textContent = canStart ? 'Hold to start' : 'Hold to end the set';
     if (k >= 1) {
       holdFrom = null; holdCool = t + 3; $('hold').hidden = true; beep(660, 0.15);
+      recEvent('gesture', { action: canStart ? 'start' : 'end' });
       const e = canStart ? tracker.startManual(t) : tracker.endNow(t); if (e) onEvents([e]);
     }
   }
@@ -1092,7 +1200,8 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
     const note = $('trackNote'), alert = $('alert');
     let problem = '';
     if (!def.manual && phase !== 'work' && tracker.ready !== wasReady) {
-      wasReady = tracker.ready;
+      wasReady = tracker.ready; recEvent('ready', { on: wasReady });
+      if (wasReady && !posPhoto) { posPhoto = true; recPhoto('in position'); }
       if (wasReady && clock() - lastChime > 4) { lastChime = clock(); beep(990, 0.12); }
       renderReady();
     }
@@ -1110,6 +1219,7 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
     if (problem) note.textContent = '';
     const showAlert = !!problem && running && (!resting || r >= it.rest * 0.75);
     alert.hidden = !showAlert; if (showAlert) alert.textContent = problem;
+    if ((showAlert ? problem : '') !== lastAlertRec) { lastAlertRec = showAlert ? problem : ''; recEvent('alert', { text: lastAlertRec }); }
     // Rest timer
     const tb = $('timerBox');
     if (resting) {
@@ -1173,6 +1283,13 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
           m.volume ? el('div', {}, el('b', {}, m.volume.toLocaleString()), el('span', {}, P.units + ' lifted')) : null, m.mins ? el('div', {}, el('b', {}, String(m.mins)), el('span', {}, 'minutes')) : null),
         el('ul', { class: 'daylist' }, m.lifts.map((l) => el('li', {}, el('b', {}, l.name), el('span', {}, `Best set ${l.best} · ${l.sets} set${l.sets > 1 ? 's' : ''} · `), el('span', { class: 'delta ' + l.delta[1] }, l.delta[0])))),
         m.topFix ? el('p', {}, `Work on next time: ${m.topFix.text.toLowerCase()} (flagged on ${m.topFix.n} rep${m.topFix.n > 1 ? 's' : ''}).`) : el('p', {}, 'No form flags this session.'),
+        lastRec ? el('div', { class: 'card' }, el('h3', {}, 'Session recording'),
+          el('p', { class: 'note' }, `${recLine(lastRec)}. It holds the joint angles the camera measured, every count and cue, your flags and corrections, and a few still photos. No video. Send the file to Claude to have the tracking tuned on your real lifts.`),
+          el('textarea', { id: 'recNotes', rows: 3, placeholder: 'Anything to add about this session? For example: the rows miscounted on set 2, or the camera was too low.', 'aria-label': 'Notes for this recording',
+            oninput: (e) => { lastRec.notes = e.target.value; }, onchange: () => recStore(lastRec) }),
+          el('div', { class: 'row' },
+            el('button', { class: 'btn', id: 'recSave', onclick: () => recSave(lastRec, true) }, `Save recording (${recSize(lastRec, true)})`),
+            el('button', { class: 'btn small', id: 'recSaveLite', onclick: () => recSave(lastRec, false) }, `Without photos (${recSize(lastRec, false)})`))) : null,
         el('div', { class: 'row' }, el('button', { class: 'btn primary', id: 'summaryDone', onclick: () => { summary = null; renderGate(); } }, 'Done'))];
     } else if (!S.onboarded && wiz === 1) {
       const goals = [['muscle', 'Build muscle', 'Get visibly bigger'], ['strength', 'Get stronger', 'Lift heavier on the main lifts'], ['fatloss', 'Lose fat', 'Lean out and keep your muscle'], ['general', 'General fitness', 'Stay strong and healthy']];
@@ -1248,15 +1365,15 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
           L.con ? el('div', {}, el('b', {}, L.ecc.toFixed(1) + ' / ' + L.con.toFixed(1)), el('span', {}, 'down / up s')) : null,
           L.slow != null ? el('div', {}, el('b', {}, (L.slow > 0 ? '+' : '') + Math.round(L.slow * 100) + '%'), el('span', {}, 'last rep slower')) : null),
         el('div', { class: 'row' },
-          el('button', { class: 'btn small', onclick: () => { L.reps = Math.max(0, L.reps - 1); reRender(); } }, '− rep'),
-          el('button', { class: 'btn small', onclick: () => { L.reps++; reRender(); } }, '+ rep'),
+          el('button', { class: 'btn small', onclick: () => { L.reps = Math.max(0, L.reps - 1); recEvent('repEdit', { to: L.reps }); reRender(); } }, '− rep'),
+          el('button', { class: 'btn small', onclick: () => { L.reps++; recEvent('repEdit', { to: L.reps }); reRender(); } }, '+ rep'),
           el('button', { class: 'btn small', onclick: () => { L.weight = curWeight(); L.weightSrc = 'entered'; reRender(); } }, 'Set weight to ' + (curWeight() || 0)),
           el('button', { class: 'btn small danger', id: 'redoPanel', onclick: redoLastSet }, 'Redo this set')),
         L.perRep.length ? el('div', { class: 'replist' }, L.perRep.map((r, i) => el('div', {}, el('span', {}, '#' + (i + 1)), el('span', {}, r.dur.toFixed(1) + ' s'), el('span', { class: r.cues.length ? 'f' : 'g' }, r.cues.join(', ') || 'clean')))) : null));
     }
     out.push(el('div', { class: 'row' },
       def.manual || !running ? el('button', { class: 'btn small', onclick: () => { const e = tracker.startManual(clock()); if (e) onEvents([e]); } }, 'Start set') : null,
-      el('button', { class: 'btn small', onclick: () => { const e = tracker.endNow(clock()); if (e) onEvents([e]); } }, 'End set now'),
+      el('button', { class: 'btn small', onclick: () => { recEvent('endNow', { by: 'button' }); const e = tracker.endNow(clock()); if (e) onEvents([e]); } }, 'End set now'),
       el('span', { class: 'note' }, 'Space bar ends a set')));
     out.push(el('h3', {}, 'Today'));
     out.push(el('ol', { class: 'queue' }, sess.items.map((q, i) => el('li', { class: i === sess.idx ? 'current' : '' },
@@ -1305,6 +1422,11 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
 
   function paneLog() {
     const out = [el('h2', {}, 'Training log')];
+    if (recList.length) out.push(el('div', { class: 'card' }, el('h3', {}, 'Session recordings'),
+      el('p', { class: 'note' }, 'The last five are kept in this browser. Save one and send it to Claude to tune the tracking.'),
+      recList.map((r) => el('div', { class: 'row' }, el('span', { style: 'flex:1;min-width:0;font-size:13px' }, new Date(r.started).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' · ' + r.day + ' · ' + recLine(r)),
+        el('button', { class: 'btn small', onclick: () => recSave(r, true) }, 'Save'), el('button', { class: 'btn small', onclick: () => recSave(r, false) }, 'No photos'),
+        el('button', { class: 'btn small danger', onclick: async () => { try { await idb('readwrite', (st) => st.delete(r.started)); } catch (e) { /* ignore */ } recLoad(); } }, 'Delete')))));
     if (S.history.length) {
       const wk = weeklySets(S.history, Date.now());
       out.push(el('div', { class: 'card' }, el('h3', {}, 'Hard sets per muscle, last 7 days'),
@@ -1449,15 +1571,17 @@ Reply with JSON only: {"found": [{"id": "<id>", "evidence": "<a few words on wha
   }
 
   document.addEventListener('keydown', (e) => {
-    if (e.code !== 'Space' || /INPUT|TEXTAREA|SELECT|BUTTON/.test(e.target.tagName) || !tracker) return;
-    e.preventDefault(); const ev = tracker.endNow(clock()); if (ev) onEvents([ev]);
+    if (/INPUT|TEXTAREA|SELECT|BUTTON/.test(e.target.tagName) || !tracker) return;
+    if (e.code === 'KeyF') { e.preventDefault(); flagOpen(); return; }
+    if (e.code !== 'Space') return;
+    e.preventDefault(); recEvent('endNow', { by: 'key' }); const ev = tracker.endNow(clock()); if (ev) onEvents([ev]);
   });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && running) navigator.wakeLock?.request('screen').catch(() => {}); });
 
   if (S.onboarded == null) S.onboarded = !S.example || S.history.length > 0 || !!S.draft;
   if (S.draft) { sess = S.draft; selectItem(Math.min(sess.idx, sess.items.length - 1)); }
-  renderGate(); renderHud(); renderPane();
-  Object.assign(hooks, { state: () => ({ phase, sess, lastM, running, coachMsg, summary }), feed: onEvents, S });
+  renderGate(); renderHud(); renderPane(); recLoad();
+  Object.assign(hooks, { rec: () => rec || lastRec }, { state: () => ({ phase, sess, lastM, running, coachMsg, summary }), feed: onEvents, S });
 })();
 </script>
 </body>

@@ -3,11 +3,12 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
+import { replay } from './replay.mjs';
 
 const html = fs.readFileSync(fileURLToPath(new URL('../index.html', import.meta.url)), 'utf8');
 const src = html.match(/<script id="engine">([\s\S]*?)<\/script>/)[1];
 new Function(src)();
-const { EX, EQUIP, PATTERNS, Tracker, measure, ruleCoach, available, lacking, options, buildSplit } = globalThis.GymEngine;
+const { packFrame, unpackFrame, EX, EQUIP, PATTERNS, Tracker, measure, ruleCoach, available, lacking, options, buildSplit } = globalThis.GymEngine;
 
 const SEEN = { sh: 1, el: 1, wr: 1, hip: 1, kn: 1, an: 1 };
 const base = { knee: 175, hip: 175, elbow: 170, shoulder: 10, thigh: 85, lean: 5, bodyLine: 175, kneeRatio: 1, wristsUp: 0, handsHigh: 1, wristDrop: 0.55, view: 'side', seen: SEEN };
@@ -165,6 +166,28 @@ function* chain(...gens) { for (const g of gens) yield* g; }
   assert.equal(tr.ready, true, 'ready once hinged and still');
   const { ev } = run('row', chain(hold(upright, 2), load(), hold(hinged, 1.5), row(), row(), row(), row(), row(), hold(hinged, 10)));
   assert.equal(of(ev, 'setEnd')[0].set.reps, 5);
+}
+// 15. Recordings: frames survive packing, and a recorded session replays to the same sets it produced live.
+{
+  const m = { ...base, knee: 123.46, wristDrop: 0.547, kneeRatio: null, raise: 0, kneeMin: 120, hipMin: 170, elbowMin: 160, view: 'angled', seen: { ...SEEN, an: 0.44 } };
+  const back = unpackFrame(packFrame(12.5, m));
+  assert.equal(back.t, 12.5); assert.equal(back.m.knee, 123.5); assert.equal(back.m.wristDrop, 0.55); assert.equal(back.m.kneeRatio, null);
+  assert.equal(back.m.view, 'angled'); assert.equal(back.m.seen.an, 0.4); assert.equal(unpackFrame(packFrame(3, null)).m, null);
+  const full = (x) => ({ ...base, raise: 0, kneeMin: x.knee ?? base.knee, hipMin: base.hip, elbowMin: x.elbow ?? base.elbow, ...x });
+  const squat = () => [...repTrace('knee', 172, 70, 1.2, 1.0, (k) => ({ thigh: 85 - 85 * k }))].map(full);
+  const row = () => [...repTrace('elbow', 170, 70, 0.8, 1.0, (k) => ({ lean: 50, wristDrop: 0.55 - 0.3 * k }))].map(full);
+  const idle = (x, secs) => [...hold(full(x), secs)];
+  const part1 = [...idle({}, 2), ...squat(), ...squat(), ...squat(), ...idle({}, 12)];
+  const part2 = [...idle({ lean: 5 }, 2), ...row().map((f) => ({ ...f, lean: 5 })), ...idle({ lean: 50 }, 1.5), ...row(), ...row(), ...row(), ...row(), ...idle({ lean: 50 }, 10)];
+  const rec = { started: 'x', day: 'Test', build: 't', video: [1280, 720], profile: {}, photos: [], notes: '', frames: [], events: [{ t: 0, type: 'lift', id: 'squat' }] };
+  let t = 0;
+  for (const f of part1) rec.frames.push(packFrame(+(t += 1 / FPS).toFixed(2), f));
+  rec.events.push({ t: +t.toFixed(2) + 0.01, type: 'lift', id: 'row' }, { t: +t.toFixed(2) + 3, type: 'flag', reason: 'Counted before I was ready', phase: 'ready', reps: 0 });
+  for (const f of part2) rec.frames.push(packFrame(+(t += 1 / FPS).toFixed(2), f));
+  rec.ended = +t.toFixed(2);
+  const segs = replay(JSON.parse(JSON.stringify(rec)), globalThis.GymEngine);
+  assert.deepEqual(segs.map((x) => [x.id, x.replayed.sets]), [['squat', [3]], ['row', [4]]], 'replay reproduces the sets, and ignores the arm bends before the hinge');
+  assert.equal(segs[1].flags.length, 1); assert.equal(segs[1].signal.name, 'elbow'); assert.ok(segs[1].ready > 0 && segs[1].notReady > 0);
 }
 // 11. Equipment: lifts are offered only when the equipment allows, and built splits respect that.
 {
