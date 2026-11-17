@@ -110,6 +110,11 @@ function* chain(...gens) { for (const g of gens) yield* g; }
   let w = fig(0, 0), m = measure(w, img(w), 16 / 9);
   assert.ok(m.knee > 175 && m.hip > 175 && m.lean < 2 && m.thigh > 85, JSON.stringify(m));
   assert.equal(m.view, 'side');
+  assert.equal(m.raise, 0, 'arms down is not a signal');
+  w[0] = P(0, -0.7); w[15] = P(0, -0.9, -0.15); m = measure(w, img(w), 16 / 9);
+  assert.equal(m.raise, 1, 'one hand above the head, the other down, is the signal');
+  w[16] = P(0, -0.9, 0.15); m = measure(w, img(w), 16 / 9);
+  assert.equal(m.raise, 0, 'both hands overhead (a press or pull-up) is not');
   w = fig(0.45, 0.45); m = measure(w, img(w), 16 / 9);
   assert.ok(Math.abs(m.thigh) < 2 && Math.abs(m.knee - 90) < 2, `thigh ${m.thigh} knee ${m.knee}`);
 }

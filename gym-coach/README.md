@@ -14,6 +14,10 @@ On a phone or tablet the page has to be served over https; a local file will not
 - Counts reps, times each rep's lowering and lifting phase, and starts and stops sets and the rest timer by itself.
 - Logs every set against your split, with the weight prefilled from the split or the last set.
 - Speaks a rep count and rule-based form cues.
+- First run walks through goal, training days and equipment, then builds a split.
+- Shows reps against target, a dot per rep, the coach's line and the next set on the camera view, sized to read from across the room.
+- Raise one hand and hold to end a set (or start and stop a hand-counted one).
+- Ends each workout with a summary against last time, and tracks weekly hard sets per muscle in the Log.
 - Knows your equipment: offers only lifts you can do, swaps lifts you can't, and builds a 3, 4 or 5-day split from your goal and equipment.
 - Shows goal-based targets (weekly sets, protein, rate of gain) under **You**.
 - Optional, with a Claude API key entered under **You**: Claude writes the between-set coaching and reads the bar weight from one camera frame per set when the plates are clearly readable.
