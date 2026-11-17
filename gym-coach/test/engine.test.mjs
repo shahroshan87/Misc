@@ -10,7 +10,7 @@ new Function(src)();
 const { EX, EQUIP, PATTERNS, Tracker, measure, ruleCoach, available, lacking, options, buildSplit } = globalThis.GymEngine;
 
 const SEEN = { sh: 1, el: 1, wr: 1, hip: 1, kn: 1, an: 1 };
-const base = { knee: 175, hip: 175, elbow: 170, shoulder: 10, thigh: 85, lean: 5, bodyLine: 175, kneeRatio: 1, wristsUp: 0, view: 'side', seen: SEEN };
+const base = { knee: 175, hip: 175, elbow: 170, shoulder: 10, thigh: 85, lean: 5, bodyLine: 175, kneeRatio: 1, wristsUp: 0, handsHigh: 1, wristDrop: 0.55, view: 'side', seen: SEEN };
 const FPS = 30;
 // Cosine move of one signal from a to b and back; other metrics supplied by `extra(phase 0..1)`.
 function* repTrace(key, a, b, down, up, extra = () => ({})) {
@@ -65,9 +65,9 @@ function* chain(...gens) { for (const g of gens) yield* g; }
 }
 // 5. Overhead press: arms swinging at the sides do not count; presses overhead do; soft lockout is flagged.
 {
-  const rack = { ...base, elbow: 60, wristsUp: 1 };
-  const swing = () => repTrace('elbow', 60, 170, 0.6, 0.6, () => ({ wristsUp: 0 }));
-  const press = (top) => repTrace('elbow', 60, top, 0.9, 1.1, () => ({ wristsUp: 1 }));
+  const rack = { ...base, elbow: 60, wristsUp: 1, wristDrop: 0.05 };
+  const swing = () => repTrace('elbow', 60, 170, 0.6, 0.6, () => ({ wristsUp: 0, wristDrop: 0.05 }));
+  const press = (top) => repTrace('elbow', 60, top, 0.9, 1.1, (k) => ({ wristsUp: 1, wristDrop: 0.05 - 0.5 * k }));
   let r = run('ohp', chain(hold(rack, 1), swing(), swing(), hold(rack, 10)));
   assert.equal(of(r.ev, 'rep').length, 0);
   r = run('ohp', chain(hold(rack, 1), press(172), press(172), press(153), hold(rack, 10)));
@@ -124,7 +124,47 @@ function* chain(...gens) { for (const g of gens) yield* g; }
   assert.match(ruleCoach(mk(8, 0.2), { lo: 6, hi: 8 }, 185, 5).say, /Go up to 190/);
   const low = ruleCoach(mk(3, 0.7), { lo: 6, hi: 8 }, 185, 5);
   assert.equal(low.nextWeight, 165); assert.match(low.say, /close to your limit/);
-  assert.match(ruleCoach(mk(7, 0.05, { depth: { text: 'Just above parallel', n: 4 } }), { lo: 6, hi: 8 }, 185, 5).say, /just above parallel, on 4 of 7/);
+  assert.match(ruleCoach(mk(7, 0.05, { depth: { text: 'Just above parallel', n: 4 } }), { lo: 6, hi: 8 }, 185, 5).say, /just above parallel\. I saw it on 4 of 7/);
+}
+// 12. One stray movement is not a set: it is held back, then dropped.
+{
+  const squat = () => repTrace('knee', 172, 70, 1.2, 1.0, (k) => ({ thigh: 85 - 85 * k }));
+  const { ev } = run('squat', chain(hold(base, 2), squat(), hold(base, 15)));
+  assert.deepEqual(ev.map((e) => e.type), ['maybe', 'cancel']);
+}
+// 13. Bench: arm movements while standing at the rack are ignored; presses while lying down count; sitting up ends the set.
+{
+  const sx = { wristsUp: 0, lean: 5 }, lx = { lean: 85, wristsUp: 1, wristDrop: -0.5 }, standing = { ...base, ...sx }, lying = { ...base, ...lx };
+  const fiddle = () => repTrace('elbow', 170, 70, 0.7, 0.7, () => sx);
+  const press = () => repTrace('elbow', 170, 80, 1.3, 1.0, () => lx);
+  const { ev, tr } = run('bench', chain(hold(standing, 2), fiddle(), fiddle(), fiddle(), hold(standing, 12)));
+  assert.equal(ev.length, 0, 'nothing counted before lying down');
+  assert.equal(tr.ready, false);
+  const r = run('bench', chain(hold(standing, 2), fiddle(), fiddle(), hold(lying, 2), press(), press(), press(), press(), hold(lying, 1), hold(standing, 6)));
+  const end = of(r.ev, 'setEnd'), reps = of(r.ev, 'rep');
+  assert.equal(end.length, 1); assert.equal(end[0].set.reps, 4);
+  assert.deepEqual(Object.keys(end[0].set.fixes), [], 'no lockout call on bench');
+  assert.equal(reps[0].late, true, 'the first rep is confirmed by the second');
+  const idx = r.ev.indexOf(end[0]), lastRepT = reps[3].rep.t;
+  assert.ok(of(r.ev.slice(idx), 'rep').length === 0);
+  // the set ended because the lifter sat up, well before the 8 s quiet gap
+  const tr2 = new Tracker('bench'); let t = 0, endedAt = null;
+  for (const m of chain(hold(lying, 2), press(), press(), hold(lying, 1), hold(standing, 7))) { t += 1 / FPS; if (tr2.update(t, m).some((e) => e.type === 'setEnd') && endedAt == null) endedAt = t; }
+  assert.ok(endedAt != null && endedAt < 2 + 2 * 2.3 + 1 + 3.5, `ended at ${endedAt}`);
+}
+// 14. Rows: bending the arms while standing upright is ignored; rows from a hinge count. Ready shows only in position.
+{
+  const upright = { ...base, lean: 5 }, hinged = { ...base, lean: 50 };
+  const load = () => repTrace('elbow', 170, 80, 0.8, 0.8, () => ({ lean: 5 }));
+  const row = () => repTrace('elbow', 170, 70, 0.8, 1.0, (k) => ({ lean: 50, wristDrop: 0.55 - 0.3 * k }));
+  assert.equal(run('row', chain(hold(upright, 2), load(), load(), load(), hold(upright, 10))).ev.length, 0);
+  const tr = new Tracker('row'); let t = 0;
+  for (const m of hold(upright, 2)) tr.update(t += 1 / FPS, m);
+  assert.equal(tr.ready, false, 'not ready standing upright');
+  for (const m of hold(hinged, 1)) tr.update(t += 1 / FPS, m);
+  assert.equal(tr.ready, true, 'ready once hinged and still');
+  const { ev } = run('row', chain(hold(upright, 2), load(), hold(hinged, 1.5), row(), row(), row(), row(), row(), hold(hinged, 10)));
+  assert.equal(of(ev, 'setEnd')[0].set.reps, 5);
 }
 // 11. Equipment: lifts are offered only when the equipment allows, and built splits respect that.
 {

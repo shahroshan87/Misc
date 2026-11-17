@@ -49,7 +49,7 @@ button { cursor: pointer; }
 .step { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line); background: var(--raised); font-size: 18px; line-height: 1; }
 .chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 5px 12px; font: 600 13px/1 var(--body); letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid currentColor; background: rgb(18 22 28 / 0.78); }
 .chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-.chip.idle { color: var(--muted); } .chip.ready { color: var(--track); } .chip.work { color: var(--good); } .chip.rest { color: var(--rest); }
+.chip.idle { color: var(--muted); } .chip.set { color: var(--rest); } .chip.ready { color: var(--track); } .chip.work { color: var(--good); } .chip.rest { color: var(--rest); }
 .track-note { margin-top: 6px; font-size: 12px; color: var(--muted); text-align: right; max-width: 260px; }
 .track-note.warn { color: var(--rest); }
 
@@ -69,6 +69,11 @@ button { cursor: pointer; }
 .lbl { font: 600 16px/1.2 var(--body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .hint { align-self: flex-end; color: var(--fg); font-size: 13px; background: rgb(18 22 28 / 0.7); border-radius: 999px; padding: 6px 12px; text-align: center; }
 .hint:empty { display: none; }
+.hint { font-size: clamp(14px, 1.6vw, 20px); padding: 8px 16px; }
+.hint.go { background: var(--good); color: #06200d; font-weight: 600; }
+#repNum.maybe { opacity: 0.45; }
+.restadj { justify-content: flex-end; margin-top: 8px; font: 14px var(--body); }
+.restadj .btn { color: var(--fg); }
 .bar { height: 8px; border-radius: 4px; background: rgb(255 255 255 / 0.18); overflow: hidden; margin: 10px 0 6px; }
 .bar i { display: block; height: 100%; width: 0; background: currentColor; }
 .hold { position: absolute; left: 50%; top: 38%; transform: translateX(-50%); width: min(360px, 70%); background: rgb(18 22 28 / 0.9); border: 1px solid var(--track); border-radius: 12px; padding: 12px 16px; text-align: center; font: 600 22px/1.1 var(--display); text-transform: uppercase; color: var(--track); }
@@ -206,7 +211,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
       </div>
       <div class="hud-mid">
         <div class="alert" id="alert" hidden></div>
-        <div class="restcard" id="restCard" hidden><p class="coachline" id="coachLine"></p><p class="nextline" id="nextLine"></p></div>
+        <div class="restcard" id="restCard" hidden><p class="coachline" id="coachLine"></p><p class="nextline" id="nextLine"></p><div class="row" style="justify-content:center"><button class="btn small" id="redoBtn">That count was wrong, redo the set</button></div></div>
         <div class="cue" id="cue" hidden></div>
       </div>
       <div class="hud-bottom">
@@ -216,7 +221,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
           <div class="lbl" id="repLabel">reps</div>
         </div>
         <div class="hint" id="hint"></div>
-        <div class="big timer" id="timerBox" hidden><span id="timerNum">0:00</span><div class="bar"><i id="timerBar"></i></div><small id="timerLabel">rest</small></div>
+        <div class="big timer" id="timerBox" hidden><span id="timerNum">0:00</span><div class="bar"><i id="timerBar"></i></div><small id="timerLabel">rest</small><div class="row restadj"><button class="btn small" id="restLess">− 15 s</button><button class="btn small" id="restMore">+ 15 s</button></div></div>
       </div>
       <div class="hold" id="hold" hidden><span id="holdText">Hold to end the set</span><div class="bar"><i id="holdBar"></i></div></div>
     </div>
@@ -280,6 +285,9 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
       bodyLine: sides(p, [J.lSh, J.lHip, J.lAn], [J.rSh, J.rHip, J.rAn], () => ang(w[J.lSh], w[J.lHip], w[J.lAn]), () => ang(w[J.rSh], w[J.rHip], w[J.rAn])),
       lean: deg(Math.acos(clamp((mHip.y - mSh.y) / torso, -1, 1))),
       wristsUp: sides(p, [J.lSh, J.lWr], [J.rSh, J.rWr], () => (w[J.lWr].y < w[J.lSh].y ? 1 : 0), () => (w[J.rWr].y < w[J.rSh].y ? 1 : 0)) >= 0.5 ? 1 : 0,
+      // handsHigh: forearms pointing up (hands on a bar at the shoulders, or a curl at the top). wristDrop: metres the wrists sit below the shoulders (about 0.55 with arms hanging).
+      handsHigh: sides(p, [J.lEl, J.lWr], [J.rEl, J.rWr], () => (w[J.lWr].y < w[J.lEl].y ? 1 : 0), () => (w[J.rWr].y < w[J.rEl].y ? 1 : 0)) >= 0.5 ? 1 : 0,
+      wristDrop: sides(p, [J.lSh, J.lWr], [J.rSh, J.rWr], () => w[J.lWr].y - w[J.lSh].y, () => w[J.rWr].y - w[J.rSh].y),
       kneeRatio: null,
     };
     const ankleGap = dist(w[J.lAn], w[J.rAn]);
@@ -301,24 +309,44 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   }
 
   /* Tracking presets. rest: where the tracked angle sits between reps. A rep is rest zone -> far zone -> rest zone.
-     first: which half of the rep comes first, 'ecc' (lowering) or 'con' (lifting). gap: quiet seconds that end a set. */
+     first: which half of the rep comes first, 'ecc' (lowering) or 'con' (lifting). gap: quiet seconds that end a set.
+     start: the lift's starting position. Reps only count when the lifter has held it, so walking about, loading plates
+     or reaching for the bar is ignored. gate: what must also be true at the far end of the rep. tip: how to get into
+     position, shown until the lifter is there. views: camera angles the lift tracks well from. */
   const up = (m) => m.wristsUp === 1, down = (m) => m.wristsUp === 0;
+  const hang = (m) => m.elbow > 140 && m.wristDrop > 0.3, tall = (m) => m.lean < 30 && m.wristDrop > 0.3;
+  const SIDE = ['side', 'angled'], FRONT = ['front', 'angled'];
   const T = {
-    squat:    { signal: 'knee', rest: 'high', hi: 150, lo: 115, first: 'ecc', joints: ['hip', 'kn', 'an'], gap: 10, maxRep: 10, view: 'Side-on or 45°', form: 'squat' },
-    oneleg:   { signal: 'kneeMin', rest: 'high', hi: 150, lo: 115, first: 'ecc', joints: ['hip', 'kn', 'an'], gap: 10, maxRep: 10, view: 'Side-on' },
-    deadlift: { signal: 'hip', rest: 'high', hi: 155, lo: 120, first: 'ecc', joints: ['sh', 'hip', 'kn'], gap: 14, maxRep: 30, view: 'Side-on', form: 'deadlift' },
-    hinge:    { signal: 'hip', rest: 'high', hi: 155, lo: 125, first: 'ecc', joints: ['sh', 'hip', 'kn'], gap: 10, maxRep: 12, view: 'Side-on', form: 'rdl' },
-    press:    { signal: 'elbow', rest: 'low', hi: 150, lo: 100, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Front or 45°', gate: up, form: 'ohp' },
-    bench:    { signal: 'elbow', rest: 'high', hi: 150, lo: 105, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Side-on, camera at bench height', form: 'lockout', beta: true },
-    pushup:   { signal: 'elbow', rest: 'high', hi: 150, lo: 110, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on, camera low', form: 'pushup' },
-    dip:      { signal: 'elbow', rest: 'high', hi: 150, lo: 105, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on', form: 'dip' },
-    row:      { signal: 'elbow', rest: 'high', hi: 145, lo: 105, first: 'con', joints: ['sh', 'el', 'wr', 'hip'], gap: 8, maxRep: 8, view: 'Side-on', form: 'row' },
-    pull:     { signal: 'elbow', rest: 'high', hi: 145, lo: 95, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Front or behind', gate: up, form: 'pullup' },
-    curl:     { signal: 'elbow', rest: 'high', hi: 140, lo: 75, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Front or side-on', form: 'curl' },
-    raise:    { signal: 'shoulder', rest: 'low', hi: 65, lo: 30, first: 'con', joints: ['sh', 'el', 'hip'], gap: 8, maxRep: 8, view: 'Front', form: 'lateral' },
-    overhead: { signal: 'elbow', rest: 'high', hi: 150, lo: 100, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on', form: 'lockout' },
-    pushdown: { signal: 'elbow', rest: 'low', hi: 150, lo: 100, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on', gate: down, form: 'lockout' },
-    legraise: { signal: 'hip', rest: 'high', hi: 150, lo: 115, first: 'con', joints: ['sh', 'hip', 'kn'], gap: 8, maxRep: 8, view: 'Side-on', gate: up },
+    squat:    { signal: 'knee', rest: 'high', hi: 150, lo: 115, first: 'ecc', joints: ['hip', 'kn', 'an'], gap: 10, maxRep: 10, view: 'Side-on or 45°', views: SIDE, form: 'squat',
+                start: (m) => m.knee > 150 && m.lean < 40 && m.handsHigh === 1, tip: 'Stand tall with your hands on the bar' },
+    oneleg:   { signal: 'kneeMin', rest: 'high', hi: 150, lo: 115, first: 'ecc', joints: ['hip', 'kn', 'an'], gap: 10, maxRep: 10, view: 'Side-on', views: SIDE,
+                start: (m) => m.lean < 40, tip: 'Stand tall in your stance' },
+    deadlift: { signal: 'hip', rest: 'high', hi: 155, lo: 120, first: 'ecc', joints: ['sh', 'hip', 'kn'], gap: 14, maxRep: 30, view: 'Side-on', views: SIDE, form: 'deadlift',
+                start: hang, gate: hang, tip: 'Stand over the bar with your arms straight' },
+    hinge:    { signal: 'hip', rest: 'high', hi: 155, lo: 125, first: 'ecc', joints: ['sh', 'hip', 'kn'], gap: 10, maxRep: 12, view: 'Side-on', views: SIDE, form: 'rdl',
+                start: hang, gate: hang, tip: 'Stand tall holding the weight with straight arms' },
+    press:    { signal: 'elbow', rest: 'low', hi: 150, lo: 100, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Front or 45°', views: FRONT, gate: up, form: 'ohp',
+                start: (m) => m.handsHigh === 1 && m.lean < 35 && m.wristDrop < 0.25, tip: 'Bring the weight to your shoulders' },
+    bench:    { signal: 'elbow', rest: 'high', hi: 150, lo: 105, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Side-on, camera at bench height', form: 'tempo', beta: true,
+                start: (m) => m.wristsUp === 1 && m.lean > 25, tip: 'Lie back and hold the weight at arm\'s length' },
+    pushup:   { signal: 'elbow', rest: 'high', hi: 150, lo: 110, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on, camera low', form: 'pushup',
+                start: (m) => m.lean > 45, tip: 'Get into a straight-arm plank' },
+    dip:      { signal: 'elbow', rest: 'high', hi: 150, lo: 105, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on', form: 'dip',
+                start: (m) => m.lean < 40 && m.wristDrop > 0.3, tip: 'Support yourself on straight arms' },
+    row:      { signal: 'elbow', rest: 'high', hi: 145, lo: 105, first: 'con', joints: ['sh', 'el', 'wr', 'hip'], gap: 8, maxRep: 8, view: 'Side-on', views: SIDE, form: 'row',
+                start: (m) => m.lean > 25 && m.wristDrop > 0.25, tip: 'Hinge forward and let the weight hang at arm\'s length' },
+    pull:     { signal: 'elbow', rest: 'high', hi: 145, lo: 95, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Front or behind', views: FRONT, gate: up, form: 'pullup',
+                start: up, tip: 'Hang from the bar with straight arms' },
+    curl:     { signal: 'elbow', rest: 'high', hi: 140, lo: 75, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Front or side-on', form: 'curl',
+                start: tall, gate: (m) => m.handsHigh === 1, tip: 'Stand tall with your arms straight down' },
+    raise:    { signal: 'shoulder', rest: 'low', hi: 65, lo: 30, first: 'con', joints: ['sh', 'el', 'hip'], gap: 8, maxRep: 8, view: 'Front', views: FRONT, form: 'lateral',
+                start: tall, tip: 'Stand tall with your arms at your sides' },
+    overhead: { signal: 'elbow', rest: 'high', hi: 150, lo: 100, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on', form: 'tempo',
+                start: up, tip: 'Hold the weight overhead with straight arms' },
+    pushdown: { signal: 'elbow', rest: 'low', hi: 150, lo: 100, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on', gate: down,
+                start: (m) => m.lean < 40, tip: 'Start with your elbows bent at your sides' },
+    legraise: { signal: 'hip', rest: 'high', hi: 150, lo: 115, first: 'con', joints: ['sh', 'hip', 'kn'], gap: 8, maxRep: 8, view: 'Side-on', gate: up,
+                start: up, tip: 'Hang from the bar' },
     manual:   { manual: true, gap: 0 },
   };
   const EQUIP = { barbell: 'Barbell and plates', rack: 'Squat rack or stands', bench: 'Flat bench', incline: 'Adjustable incline bench', dumbbells: 'Dumbbells',
@@ -330,16 +358,16 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   const X = (name, pattern, t, eq, extra) => ({ name, pattern, eq, ...T[t], ...extra });
   const EX = {
     squat:      X('Back squat', 'knee', 'squat', [['barbell', 'rack']]),
-    goblet:     X('Goblet squat', 'knee', 'squat', [['dumbbells'], ['kettlebell']]),
+    goblet:     X('Goblet squat', 'knee', 'squat', [['dumbbells'], ['kettlebell']], { tip: 'Stand tall holding the weight at your chest' }),
     splitsquat: X('Bulgarian split squat', 'knee', 'oneleg'),
     lunge:      X('Reverse lunge', 'knee', 'oneleg'),
-    bwsquat:    X('Bodyweight squat', 'knee', 'squat'),
+    bwsquat:    X('Bodyweight squat', 'knee', 'squat', undefined, { start: (m) => m.knee > 150 && m.lean < 40, tip: 'Stand tall' }),
     rdl:        X('Romanian deadlift', 'hinge', 'hinge', [['barbell']]),
     deadlift:   X('Deadlift', 'hinge', 'deadlift', [['barbell']]),
     dbrdl:      X('Dumbbell Romanian deadlift', 'hinge', 'hinge', [['dumbbells'], ['kettlebell']]),
-    kbswing:    X('Kettlebell swing', 'hinge', 'hinge', [['kettlebell']], { lo: 130, gap: 6, maxRep: 5, form: null }),
-    bandgm:     X('Band good morning', 'hinge', 'hinge', [['bands']]),
-    slrdl:      X('Single-leg Romanian deadlift', 'hinge', 'hinge', undefined, { signal: 'hipMin', form: null }),
+    kbswing:    X('Kettlebell swing', 'hinge', 'hinge', [['kettlebell']], { lo: 130, gap: 6, maxRep: 5, form: null, start: null, gate: null, tip: 'Stand tall holding the kettlebell' }),
+    bandgm:     X('Band good morning', 'hinge', 'hinge', [['bands']], { start: null, gate: null, tip: 'Stand tall with the band across your shoulders' }),
+    slrdl:      X('Single-leg Romanian deadlift', 'hinge', 'hinge', undefined, { signal: 'hipMin', form: null, start: null, gate: null, tip: 'Stand tall on one leg' }),
     bench:      X('Bench press', 'hpush', 'bench', [['barbell', 'bench']]),
     dbbench:    X('Dumbbell bench press', 'hpush', 'bench', [['dumbbells', 'bench']]),
     inclinedb:  X('Incline dumbbell press', 'hpush', 'bench', [['dumbbells', 'incline']]),
@@ -351,15 +379,15 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     bandohp:    X('Band overhead press', 'vpush', 'press', [['bands']]),
     pike:       X('Pike push-up', 'vpush', 'pushup', undefined, { form: null }),
     row:        X('Barbell row', 'hpull', 'row', [['barbell']]),
-    dbrow:      X('One-arm dumbbell row', 'hpull', 'row', [['dumbbells'], ['kettlebell']], { signal: 'elbowMin' }),
-    cablerow:   X('Seated cable row', 'hpull', 'row', [['cable']], { form: null }),
-    invrow:     X('Inverted row', 'hpull', 'row', [['barbell', 'rack']], { form: null }),
-    bandrow:    X('Band row', 'hpull', 'row', [['bands']], { form: null }),
-    tablerow:   X('Inverted row under a sturdy table', 'hpull', 'row', undefined, { form: null }),
+    dbrow:      X('One-arm dumbbell row', 'hpull', 'row', [['dumbbells'], ['kettlebell']], { signal: 'elbowMin', start: (m) => m.lean > 25, tip: 'Brace on the bench and let the dumbbell hang' }),
+    cablerow:   X('Seated cable row', 'hpull', 'row', [['cable']], { form: null, start: null, tip: 'Sit tall with your arms straight', views: null }),
+    invrow:     X('Inverted row', 'hpull', 'row', [['barbell', 'rack']], { form: null, start: null, tip: 'Hang under the bar with straight arms', views: null }),
+    bandrow:    X('Band row', 'hpull', 'row', [['bands']], { form: null, start: null, tip: 'Start with your arms straight', views: null }),
+    tablerow:   X('Inverted row under a sturdy table', 'hpull', 'row', undefined, { form: null, start: null, tip: 'Hang under the table with straight arms', views: null }),
     pullup:     X('Pull-up', 'vpull', 'pull', [['pullupbar']]),
     chinup:     X('Chin-up', 'vpull', 'pull', [['pullupbar']]),
-    pulldown:   X('Lat pulldown', 'vpull', 'pull', [['cable']]),
-    bandpull:   X('Band pulldown', 'vpull', 'pull', [['bands']]),
+    pulldown:   X('Lat pulldown', 'vpull', 'pull', [['cable']], { tip: 'Reach up and take the bar with straight arms' }),
+    bandpull:   X('Band pulldown', 'vpull', 'pull', [['bands']], { tip: 'Reach up and take the band with straight arms' }),
     lateral:    X('Lateral raise', 'delts', 'raise', [['dumbbells'], ['cable'], ['bands']]),
     curl:       X('Biceps curl', 'biceps', 'curl', [['dumbbells'], ['barbell'], ['cable'], ['bands'], ['kettlebell']]),
     ohext:      X('Overhead triceps extension', 'triceps', 'overhead', [['dumbbells'], ['cable'], ['bands']]),
@@ -402,15 +430,15 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   };
   /* Sets, rep range and rest for one slot. Sources are in reports/Muscle gain methods by goal.md.
      Muscle: aims at 10+ weekly sets per muscle once presses and pulls are counted at half for the arms and shoulders they also work
-     (ACSM 2026 position stand; Pelland et al.). Rests over 60 s help growth with no clear gain past 90 s (Singer 2024); compound
-     rests are longer by convention. Strength: heavier loads, longer rests. Rep ranges per lift type are coaching convention.
+     (ACSM 2026 position stand; Pelland et al.). Rests over 60 s help growth with no clear gain past 90 s (Singer 2024), so
+     size work rests 60 to 90 s. Strength: heavier loads, longer rests. Rep ranges per lift type are coaching convention.
      loaded: false for bodyweight and band lifts, where reps go higher because load is fixed (light loads grow muscle when sets
      end near failure: Lopez 2021). */
   function dose(goal, compound, firstOfDay, loaded) {
     let d;
-    if (goal === 'strength') d = compound ? (firstOfDay ? { sets: 4, lo: 3, hi: 6, rest: 210 } : { sets: 3, lo: 5, hi: 8, rest: 180 }) : { sets: 2, lo: 8, hi: 12, rest: 90 };
-    else if (goal === 'general') d = compound ? { sets: 2, lo: 8, hi: 12, rest: 120 } : { sets: 2, lo: 10, hi: 15, rest: 60 };
-    else d = compound ? { sets: firstOfDay ? 4 : 3, lo: 6, hi: 10, rest: 150 } : { sets: goal === 'fatloss' ? 2 : 3, lo: 10, hi: 15, rest: 90 };
+    if (goal === 'strength') d = compound ? (firstOfDay ? { sets: 4, lo: 3, hi: 6, rest: 180 } : { sets: 3, lo: 5, hi: 8, rest: 150 }) : { sets: 2, lo: 8, hi: 12, rest: 90 };
+    else if (goal === 'general') d = compound ? { sets: 2, lo: 8, hi: 12, rest: 90 } : { sets: 2, lo: 10, hi: 15, rest: 60 };
+    else d = compound ? { sets: firstOfDay ? 4 : 3, lo: 6, hi: 10, rest: 90 } : { sets: goal === 'fatloss' ? 2 : 3, lo: 10, hi: 15, rest: 60 };
     if (!loaded) { d.lo = Math.max(d.lo, 8); d.hi = Math.max(d.hi, 20); }
     return d;
   }
@@ -439,71 +467,65 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   }
 
   /* Form rules. Each returns cues for one finished rep: {id, sev: 'fix' | 'good', text, say}. */
+  /* text: short line for the screen. say: the full spoken sentence. */
   const fix = (id, text, say) => ({ id, sev: 'fix', text, say });
+  const slowDown = (r) => (r.ecc < 0.6 ? [fix('control', 'Slower on the way down', 'Slow it down on the way down. Take about two seconds.')] : []);
   const FORM = {
     squat(r, view) {
       const out = [], d = r.agg.thigh.min;
-      if (d > 25) out.push(fix('depth', 'Well above parallel', 'Go deeper'));
-      else if (d > 10) out.push(fix('depth', 'Just above parallel', 'A little deeper'));
-      if (view !== 'front' && r.agg.lean.max > 60) out.push(fix('chest', 'Chest dropping forward', 'Chest up'));
-      if (view === 'front' && r.agg.kneeRatio && r.agg.kneeRatio.min < 0.75) out.push(fix('knees', 'Knees caving in', 'Knees out'));
-      if (r.ecc < 0.6) out.push(fix('control', 'Dropping too fast', 'Control the way down'));
-      if (!out.length && d <= 10) out.push({ id: 'depth-ok', sev: 'good', text: 'Depth good' });
+      if (d > 25) out.push(fix('depth', 'Sit deeper', 'Try to sit deeper on the next one, until your thighs are level with the floor.'));
+      else if (d > 10) out.push(fix('depth', 'A touch deeper', 'Nearly there. Just a touch deeper.'));
+      if (view !== 'front' && r.agg.lean.max > 60) out.push(fix('chest', 'Keep your chest up', 'Keep your chest up as you come out of the bottom.'));
+      if (view === 'front' && r.agg.kneeRatio && r.agg.kneeRatio.min < 0.75) out.push(fix('knees', 'Push your knees out', 'Push your knees out over your toes.'));
+      out.push(...slowDown(r));
       return out;
     },
     deadlift(r) {
-      const out = [];
-      if (r.agg.hip.max < 160) out.push(fix('lockout', 'Lockout not finished', 'Stand all the way up'));
-      return out;
+      return r.agg.hip.max < 160 ? [fix('lockout', 'Stand all the way up', 'Finish each rep by standing fully tall.')] : [];
     },
     rdl(r) {
       const out = [];
-      if (r.agg.knee.min < 120) out.push(fix('knees', 'Too much knee bend', 'Hips back, soft knees'));
-      if (r.agg.hip.max < 160) out.push(fix('lockout', 'Lockout not finished', 'Stand all the way up'));
+      if (r.agg.knee.min < 120) out.push(fix('knees', 'Less knee bend', 'Keep your knees soft and push your hips back, like closing a door behind you.'));
+      if (r.agg.hip.max < 160) out.push(fix('lockout', 'Stand all the way up', 'Finish each rep by standing fully tall.'));
       return out;
     },
     ohp(r, view) {
       const out = [];
-      if (r.agg.elbow.max < 158) out.push(fix('lockout', 'Elbows not locked out', 'Lock it out'));
-      if (view !== 'front' && r.agg.lean.max - r.agg.lean.min > 15) out.push(fix('lean', 'Leaning back', 'Ribs down, squeeze glutes'));
+      if (r.agg.elbow.max < 155) out.push(fix('lockout', 'Press all the way up', 'Press all the way up until your arms are straight.'));
+      if (view !== 'front' && r.agg.lean.max - r.agg.lean.min > 15) out.push(fix('lean', 'Stay upright', 'Try not to lean back. Squeeze your glutes and keep your ribs down.'));
       return out;
     },
-    lockout(r) {
-      return r.agg.elbow.max < 155 ? [fix('lockout', 'Elbows not locked out', 'Lock it out')] : [];
-    },
+    tempo: slowDown,
     dip(r) {
-      const out = [];
-      if (r.agg.elbow.min > 95) out.push(fix('depth', 'Not low enough', 'Go lower'));
-      if (r.agg.elbow.max < 155) out.push(fix('lockout', 'Elbows not locked out', 'Lock it out'));
-      return out;
+      return r.agg.elbow.min > 95 ? [fix('depth', 'Go a little lower', 'Lower yourself a little further on each rep.')] : [];
     },
     row(r) {
       const out = [];
-      if (r.agg.lean.max - r.agg.lean.min > 15) out.push(fix('torso', 'Torso rising with the pull', 'Keep your back angle'));
-      if (r.agg.lean.max < 30) out.push(fix('hinge', 'Standing too upright', 'Hinge further over'));
+      if (r.agg.lean.max - r.agg.lean.min > 15) out.push(fix('torso', 'Keep your back still', 'Keep your back at the same angle and let your arms do the pulling.'));
+      if (r.agg.lean.max < 30) out.push(fix('hinge', 'Lean further forward', 'Hinge a little further forward.'));
       return out;
     },
     curl(r) {
       const out = [];
-      if (r.agg.lean.max - r.agg.lean.min > 12) out.push(fix('swing', 'Swinging the weight', 'Keep your torso still'));
-      if (r.agg.shoulder.max > 40) out.push(fix('elbows', 'Elbows drifting forward', 'Pin your elbows'));
-      if (r.agg.elbow.min > 65) out.push(fix('top', 'Short at the top', 'Curl higher'));
+      if (r.agg.lean.max - r.agg.lean.min > 12) out.push(fix('swing', 'Keep your body still', 'Keep your body still and let your arms do the work.'));
+      if (r.agg.shoulder.max > 40) out.push(fix('elbows', 'Elbows by your sides', 'Keep your elbows pinned to your sides.'));
+      if (r.agg.elbow.min > 65) out.push(fix('top', 'Curl a little higher', 'Curl a little higher at the top.'));
       return out;
     },
     lateral(r) {
       const out = [];
-      if (r.agg.shoulder.max > 105) out.push(fix('high', 'Raising past shoulder height', 'Stop at shoulder height'));
-      if (r.agg.lean.max - r.agg.lean.min > 12) out.push(fix('swing', 'Swinging the weight', 'No swing'));
+      if (r.agg.shoulder.max > 105) out.push(fix('high', 'Stop at shoulder height', 'Stop when your arms reach shoulder height.'));
+      if (r.agg.lean.max - r.agg.lean.min > 12) out.push(fix('swing', 'Keep your body still', 'Keep your body still. Lift with your shoulders, not a swing.'));
       return out;
     },
     pushup(r) {
       const out = [];
-      if (r.agg.bodyLine.min < 155) out.push(fix('hips', 'Hips sagging', 'Brace, hips up'));
-      if (r.agg.elbow.min > 95) out.push(fix('depth', 'Not low enough', 'Chest to the floor'));
+      if (r.agg.bodyLine.min < 155) out.push(fix('hips', 'Keep your hips up', 'Tighten your stomach and keep your hips in line with your shoulders.'));
+      if (r.agg.elbow.min > 95) out.push(fix('depth', 'Go a little lower', 'Lower your chest closer to the floor.'));
       return out;
     },
     pullup(r) {
-      return r.agg.elbow.min > 80 ? [fix('top', 'Short at the top', 'Chin over the bar')] : [];
+      return r.agg.elbow.min > 80 ? [fix('top', 'Pull a little higher', 'Pull until your chin is over the bar.')] : [];
     },
   };
 
@@ -515,6 +537,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
       this.state = 'unknown'; this.reps = []; this.sm = null; this.lastT = null;
       this.lost = null; this.view = 'angled'; this.tStart = null; this.manualStart = null;
       this.hist = []; this.settle = null;
+      this.ready = false; this.poseSince = null; this.posedAt = -1e9; this.readyAt = -1e9; this.unposed = null; this.pending = null; this.valid = false;
     }
     get active() { return this.reps.length > 0 || this.manualStart != null; }
     get moving() { return this.state === 'out' || this.state === 'far'; }
@@ -524,8 +547,12 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
       if (d.manual) return ev;
       if (!m || missing(d, m).length) {
         if (this.lost == null) this.lost = t;
-        if (t - this.lost > 3) { this.state = 'unknown'; this.sm = null; this.hist = []; this.settle = null; if (this.reps.length) ev.push(this._end()); }
-        this.lastT = t; return ev;
+        if (t - this.lost > 3) {
+          this.state = 'unknown'; this.sm = null; this.hist = []; this.settle = null; this.poseSince = null;
+          if (this.pending) { this.pending = null; ev.push({ type: 'cancel' }); }
+          if (this.reps.length) ev.push(this._end());
+        }
+        this.lastT = t; this.ready = false; return ev;
       }
       this.lost = null; this.view = m.view;
       const raw = m[d.signal], dt = this.lastT == null ? 0 : Math.max(0, t - this.lastT);
@@ -536,6 +563,13 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
       h.push({ t, s }); while (h.length > 3 && t - h[0].t > 1.5) h.shift();
       // Degrees per second toward the far zone, over the last two frames.
       const toward = (i) => (i >= 2 ? (h[i].s - h[i - 2].s) / ((h[i].t - h[i - 2].t) || 1e-6) * (high ? -1 : 1) : 0);
+
+      // Ready means: in the lift's starting position, and held there for a moment.
+      const posed = !d.start || d.start(m);
+      if (posed) { if (this.poseSince == null) this.poseSince = t; this.posedAt = t; } else this.poseSince = null;
+      this.ready = this.state === 'rest' && inA && posed && t - this.poseSince >= 0.6;
+      if (this.ready) this.readyAt = t;
+      if (this.moving || posed) this.unposed = null; else if (this.unposed == null) this.unposed = t;
 
       // A rep is counted the moment the joint is back in the rest zone; keep timing it until the movement actually stops.
       if (this.settle) {
@@ -551,6 +585,9 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
           // Time the rep from when the movement began, not from when it crossed the threshold.
           let i = h.length - 1; while (i >= 2 && toward(i) > 20) i--;
           this.state = 'out'; this.tLeave = h[i].t; this.ext = { v: s, t }; this.agg = {}; this._acc(m);
+          // Movements that did not begin from the starting position never count. The first rep needs the position held;
+          // later reps in the same set only need to pass through it.
+          this.valid = t - this.readyAt <= 0.5 || ((this.reps.length > 0 || !!this.pending) && t - this.posedAt <= 0.5);
         }
       } else {
         this._acc(m);
@@ -558,18 +595,29 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
         if (this.state === 'out' && inB && (!d.gate || d.gate(m))) this.state = 'far';
         if (inA) {
           const dur = t - this.tLeave;
-          if (this.state === 'far' && dur >= 0.4) {
+          if (this.state === 'far' && dur >= 0.4 && this.valid) {
             const p1 = this.ext.t - this.tLeave, p2 = t - this.ext.t;
-            const rep = { n: this.reps.length + 1, t, dur, ext: this.ext.v, agg: this.agg,
-              ecc: d.first === 'ecc' ? p1 : p2, con: d.first === 'ecc' ? p2 : p1 };
+            const rep = { n: 0, t, dur, ext: this.ext.v, agg: this.agg, ecc: d.first === 'ecc' ? p1 : p2, con: d.first === 'ecc' ? p2 : p1 };
             rep.cues = FORM[d.form] ? FORM[d.form](rep, this.view) : [];
-            if (!this.reps.length) { this.tStart = dur < 8 ? this.tLeave : t - 4; ev.push({ type: 'setStart', t: this.tStart }); }
-            this.reps.push(rep); ev.push({ type: 'rep', rep }); this.settle = { rep, t0: t };
+            const begin = (r, tLeave) => { this.tStart = r.dur < 8 ? tLeave : r.t - 4; ev.push({ type: 'setStart', t: this.tStart }); };
+            if (!this.reps.length && !this.pending) {
+              // One rep alone is not a set yet. It is held back until a second one follows.
+              this.pending = { rep, tLeave: this.tLeave }; ev.push({ type: 'maybe' });
+            } else {
+              if (this.pending) { const f = this.pending; this.pending = null; begin(f.rep, f.tLeave); f.rep.n = 1; this.reps.push(f.rep); ev.push({ type: 'rep', rep: f.rep, late: true }); }
+              rep.n = this.reps.length + 1; this.reps.push(rep); ev.push({ type: 'rep', rep });
+            }
+            this.settle = { rep, t0: t };
           }
           this.state = 'rest';
         } else if (t - this.tLeave > d.maxRep) { this.state = 'unknown'; }
       }
-      if (this.reps.length && !this.moving && t - this.reps[this.reps.length - 1].t > d.gap) ev.push(this._end());
+      if (this.pending && !this.moving && t - this.pending.rep.t > d.gap) { this.pending = null; ev.push({ type: 'cancel' }); }
+      if (this.reps.length && !this.moving) {
+        const quiet = t - this.reps[this.reps.length - 1].t > d.gap;
+        const left = d.start && this.unposed != null && t - this.unposed > 3;      // stood up, racked the bar, walked off
+        if (quiet || left) ev.push(this._end());
+      }
       return ev;
     }
     _acc(m) {
@@ -581,7 +629,10 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     }
     /* Manual sets: for untracked exercises, or to force a set to end now. */
     startManual(t) { if (!this.active) { this.manualStart = t; return { type: 'setStart', t }; } return null; }
-    endNow(t) { this.state = 'unknown'; this.settle = null; return this.active ? this._end(t) : null; }
+    endNow(t) {
+      const had = !!this.pending; this.pending = null; this.state = 'unknown'; this.settle = null;
+      return this.active ? this._end(t) : (had ? { type: 'cancel' } : null);
+    }
     _end(tNow) {
       const reps = this.reps, n = reps.length;
       const tEnd = n ? reps[n - 1].t : tNow, tStart = n ? this.tStart : this.manualStart;
@@ -607,7 +658,8 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
       else parts.push(`${reps} reps, in range. Same weight next set.`);
     } else parts.push(`${reps} reps.`);
     const top = Object.values(set.fixes).sort((a, b) => b.n - a.n)[0];
-    if (top) parts.push(`Fix first: ${top.text.toLowerCase()}, on ${top.n} of ${reps} reps.`);
+    if (top) parts.push(`One thing to work on: ${top.text.toLowerCase()}. I saw it on ${top.n} of ${reps} reps.`);
+    else if (reps >= 2) parts.push('Every rep looked clean. Nice work.');
     if (set.slow != null) {
       if (set.slow >= 0.5) parts.push(`Your last rep was ${Math.round(set.slow * 100)} percent slower than your first, which usually means you were close to your limit.`);
       else if (set.slow < 0.15 && (!target || reps >= target.lo)) parts.push('Rep speed barely dropped, so you had more in you.');
@@ -654,11 +706,11 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   const DEFAULTS = {
     example: true,
     profile: { goal: 'muscle', level: 'intermediate', units: 'lb', age: '', bodyweight: '', height: '', waist: '', background: '', notes: '', body: null, equipment: ['barbell', 'rack', 'bench', 'dumbbells', 'pullupbar'], equipmentSet: false, days: 4 },
-    settings: { apiKey: '', model: 'claude-opus-5-5', voice: 'all', mirror: true, accuracy: 'lite', readBar: true, camera: '' },
+    settings: { apiKey: '', model: 'claude-opus-5-5', voiceName: '', voice: 'all', mirror: true, accuracy: 'lite', readBar: true, camera: '' },
     plan: [
-      { key: uid(), name: 'Push', exercises: [ex('ohp', 3, 6, 8, 95, 150), ex('bench', 3, 6, 10, 135, 150), ex('lateral', 3, 12, 15, 15, 75), ex('pushup', 2, 10, 20, 0, 90)] },
-      { key: uid(), name: 'Pull', exercises: [ex('deadlift', 3, 3, 5, 225, 180), ex('row', 3, 8, 10, 135, 120), ex('pullup', 3, 5, 10, 0, 120), ex('curl', 3, 10, 12, 30, 75)] },
-      { key: uid(), name: 'Legs', exercises: [ex('squat', 3, 5, 8, 185, 180), ex('rdl', 3, 8, 10, 155, 120)] },
+      { key: uid(), name: 'Push', exercises: [ex('ohp', 3, 6, 8, 95, 90), ex('bench', 3, 6, 10, 135, 90), ex('lateral', 3, 12, 15, 15, 60), ex('pushup', 2, 10, 20, 0, 60)] },
+      { key: uid(), name: 'Pull', exercises: [ex('deadlift', 3, 3, 5, 225, 120), ex('row', 3, 8, 10, 135, 90), ex('pullup', 3, 5, 10, 0, 90), ex('curl', 3, 10, 12, 30, 60)] },
+      { key: uid(), name: 'Legs', exercises: [ex('squat', 3, 5, 8, 185, 90), ex('rdl', 3, 8, 10, 155, 90)] },
     ],
     history: [],
     draft: null,
@@ -690,7 +742,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   }
   function selectItem(i) {
     sess.idx = i; const it = item();
-    tracker = new Tracker(it.id);
+    tracker = new Tracker(it.id); wasReady = false; viewBadSince = null; viewTold = false;
     const prev = it.done.length ? it.done[it.done.length - 1].weight : null;
     setWeight(prev != null ? prev : (it.weight || lastWeightFor(it.id) || 0), prev != null ? '' : (it.weight ? 'from your split' : ''));
     phase = restFrom != null ? 'rest' : 'ready';
@@ -748,14 +800,26 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   $('weight').oninput = () => { pendingSrc = ''; $('wSrc').textContent = ''; };
 
   /* ---------- Voice ---------- */
-  let lastSaid = { id: '', n: 0 };
+  let voices = [];
+  function loadVoices() { try { voices = speechSynthesis.getVoices().filter((v) => /^en/i.test(v.lang)); } catch (e) { voices = []; } }
+  /* Browsers ship several voices; the default is often the most robotic. Prefer the natural-sounding ones. */
+  function bestVoice() {
+    if (!voices.length) loadVoices();
+    const chosen = voices.find((v) => v.name === S.settings.voiceName); if (chosen) return chosen;
+    const rank = (v) => (/natural|neural/i.test(v.name) ? 5 : /premium|enhanced|siri/i.test(v.name) ? 4 : /Google (US|UK) English/i.test(v.name) ? 3
+      : /^(Samantha|Ava|Allison|Zoe|Evan|Nathan|Daniel|Karen|Moira)/i.test(v.name) ? 2 : v.default ? 1 : 0);
+    return [...voices].sort((a, b) => rank(b) - rank(a))[0] || null;
+  }
   function say(text, urgent) {
     if (S.settings.voice === 'off' || !('speechSynthesis' in window) || !text) return;
     try {
       if (urgent) speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text); u.rate = 1.05; speechSynthesis.speak(u);
+      const u = new SpeechSynthesisUtterance(text), v = bestVoice();
+      if (v) { u.voice = v; u.lang = v.lang; }
+      u.rate = 1; u.pitch = 1; speechSynthesis.speak(u);
     } catch (e) { /* no voice on this browser */ }
   }
+  if ('speechSynthesis' in window) { loadVoices(); speechSynthesis.onvoiceschanged = () => { loadVoices(); if (tab === 'you') renderPane(); }; }
   let actx = null;
   function beep(freq = 880, dur = 0.5) {
     if (S.settings.voice === 'off') return;
@@ -767,37 +831,44 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     } catch (e) { /* no audio */ }
   }
   let cueTimer = 0;
-  function showCue(text, sev) {
+  function showCue(text, sev, ms = 3500) {
     const c = $('cue'); c.textContent = text; c.className = 'cue ' + (sev || ''); c.hidden = false;
-    clearTimeout(cueTimer); cueTimer = setTimeout(() => { c.hidden = true; }, 3500);
+    clearTimeout(cueTimer); cueTimer = setTimeout(() => { c.hidden = true; }, ms);
   }
 
   /* ---------- Tracking events ---------- */
   function onEvents(evs) {
     for (const e of evs) {
       if (e.type === 'setStart') onSetStart(e);
-      else if (e.type === 'rep') onRep(e.rep);
+      else if (e.type === 'rep') onRep(e.rep, e.late);
+      else if (e.type === 'maybe') { $('repNum').textContent = '1'; $('repNum').classList.add('maybe'); $('repLabel').textContent = 'keep going'; }
+      else if (e.type === 'cancel') renderHud();
       else if (e.type === 'setEnd') onSetEnd(e);
     }
   }
   function onSetStart(e) {
     lastRest = restFrom != null ? Math.max(0, e.t - restFrom) : null;
-    restFrom = null; restBeeped = false; phase = 'work'; lastSaid = { id: '', n: 0 }; dots = [];
+    restFrom = null; restBeeped = false; phase = 'work'; cueCount = {}; cleanRun = 0; praised = false; dots = [];
+    maybeReadBar();
     if (innerWidth < 1100) setFocus(true);
     renderHud();
   }
-  function onRep(rep) {
-    $('repNum').textContent = rep.n;
-    if (rep.n === 1) maybeReadBar();
+  let cueCount = {}, cleanRun = 0, praised = false;
+  function onRep(rep, late) {
+    $('repNum').textContent = rep.n; $('repNum').classList.remove('maybe');
     const c = rep.cues.find((x) => x.sev === 'fix');
     dots.push(c ? 'fix' : 'good'); renderDots(dots);
+    if (late) return;                                   // the held-back first rep: shown, not announced
     if (S.settings.voice === 'cues') beep(1320, 0.08);
     if (c) {
-      showCue(c.text, 'fix');
-      // Say a correction at most twice in a row, so it coaches without nagging.
-      if (lastSaid.id !== c.id) lastSaid = { id: c.id, n: 0 };
-      if (lastSaid.n < 2) { lastSaid.n++; say(c.say, true); return; }
-    } else if (rep.cues[0]) showCue(rep.cues[0].text, 'good');
+      cleanRun = 0; showCue(c.text, 'fix');
+      // Explain a correction the first time, remind once more if it keeps happening, and otherwise stay out of the way.
+      const n = cueCount[c.id] = (cueCount[c.id] || 0) + 1;
+      if (n === 1 || n === 4) { say(c.say, true); return; }
+    } else {
+      cleanRun++; showCue('Good rep', 'good', 1200);
+      if (cleanRun === 3 && !praised) { praised = true; say(`${rep.n}. Looking good, keep that up.`, true); return; }
+    }
     if (S.settings.voice === 'all') say(String(rep.n), true);
   }
   function onSetEnd(e) {
@@ -816,10 +887,22 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     persistDraft();
     if (doneAll && nxt) selectItem(sess.idx + 1); else { renderHud(); renderPane(); }
   }
-  function undoLastSet() {
+  /* Remove the last logged set and go back to it, including back to the previous lift if Spotter had moved on. */
+  function redoLastSet() {
     if (!lastSet) return;
-    const i = lastSet.item.done.indexOf(lastSet.log); if (i >= 0) lastSet.item.done.splice(i, 1);
-    lastSet = null; coachMsg = null; persistDraft(); renderHud(); renderPane();
+    const it = lastSet.item, i = it.done.indexOf(lastSet.log); if (i >= 0) it.done.splice(i, 1);
+    const idx = sess.items.indexOf(it);
+    lastSet = null; coachMsg = null; restFrom = null; lastRest = null; dots = [];
+    persistDraft(); selectItem(idx >= 0 ? idx : sess.idx);
+    say('Okay, that set is removed. Go again when you are ready.');
+  }
+  function adjustRest(delta) {
+    const it = item(); if (!it) return;
+    it.rest = Math.max(15, Math.min(600, (it.rest || 0) + delta));
+    const day = S.plan.find((d) => d.key === sess.dayKey), x = day && day.exercises[sess.idx];
+    if (x && x.id === it.id) x.rest = it.rest;
+    if (restFrom != null) restBeeped = clock() - restFrom >= it.rest;
+    persistDraft();
   }
 
   /* ---------- Claude (optional) ---------- */
@@ -990,7 +1073,16 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
     }
   }
   function setFocus(on) { document.querySelector('.app').classList.toggle('focus', on); $('panelToggle').textContent = on ? 'Show panel' : 'Hide panel'; }
+  $('redoBtn').onclick = redoLastSet; $('restLess').onclick = () => adjustRest(-15); $('restMore').onclick = () => adjustRest(15);
   $('panelToggle').onclick = () => setFocus(!document.querySelector('.app').classList.contains('focus'));
+  let wasReady = false, lastChime = -1e9, viewBadSince = null, viewTold = false;
+  /* Between sets on a tracked lift: say how to get into position, and confirm when the lifter is there. */
+  function renderReady() {
+    const def = tracker.def, rdy = tracker.ready;
+    if (phase === 'ready') setChip(rdy ? 'ready' : 'set', rdy ? 'Ready' : 'Get set');
+    $('hint').textContent = rdy ? 'In position. Start when you like' : def.tip || '';
+    $('hint').classList.toggle('go', rdy);
+  }
   function renderDots(list) { $('repDots').replaceChildren(...list.map((d) => el('i', { class: d === 'fix' ? 'fix' : '' }))); }
 
   function tick() {
@@ -999,9 +1091,22 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
     // Tracking: a quiet note when all is well, a banner readable across the room when the camera can't see enough.
     const note = $('trackNote'), alert = $('alert');
     let problem = '';
+    if (!def.manual && phase !== 'work' && tracker.ready !== wasReady) {
+      wasReady = tracker.ready;
+      if (wasReady && clock() - lastChime > 4) { lastChime = clock(); beep(990, 0.12); }
+      renderReady();
+    }
     if (def.manual) note.textContent = 'Counted by hand';
     else if (!lastM) problem = 'Step into view';
     else { const miss = missing(def, lastM); if (miss.length) problem = `Step back: can't see your ${miss.join(' or ')}`; else note.textContent = `Tracking · ${lastM.view} view · best: ${def.view}`; }
+    // Camera angle: ask for a better one before the set, never during it.
+    if (!problem && lastM && def.views && !def.views.includes(lastM.view) && phase !== 'work' && !tracker.pending) {
+      if (viewBadSince == null) viewBadSince = clock();
+      if (clock() - viewBadSince > 2) {
+        problem = def.views[0] === 'front' ? 'Turn to face the camera' : 'Turn side-on to the camera';
+        if (!viewTold && running && !resting) { viewTold = true; say(`For ${def.name.toLowerCase()} I can see you best ${def.views[0] === 'front' ? 'from the front. Turn to face the camera.' : 'from the side. Turn side-on to the camera.'}`); }
+      }
+    } else viewBadSince = null;
     if (problem) note.textContent = '';
     const showAlert = !!problem && running && (!resting || r >= it.rest * 0.75);
     alert.hidden = !showAlert; if (showAlert) alert.textContent = problem;
@@ -1023,7 +1128,7 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
     $('nowEx').textContent = def.name + (def.beta ? ' (beta)' : '');
     const n = Math.min(it.done.length + 1, it.sets);
     $('nowSub').textContent = left ? `Set ${n} of ${it.sets} · target ${range} reps` : `All ${it.sets} sets done`;
-    $('restCard').hidden = phase !== 'rest';
+    $('restCard').hidden = phase !== 'rest'; $('repNum').classList.remove('maybe'); $('hint').classList.remove('go');
     if (phase === 'work') {
       setChip('work', 'Working'); $('repLabel').textContent = def.manual ? 'set time' : 'reps'; $('repOf').textContent = def.manual ? '' : '/ ' + range;
       if (!def.manual) $('repNum').textContent = tracker.reps.length; renderDots(dots);
@@ -1034,10 +1139,10 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
       $('coachLine').textContent = coachMsg ? coachMsg.text : '';
       const w = curWeight();
       $('nextLine').textContent = left ? `Next: ${lastSet && lastSet.item !== it ? def.name + ' · ' : ''}set ${n} of ${it.sets} · ${w ? w + ' ' + S.profile.units + ' · ' : ''}${range} reps` : 'Last set done. Finish when you are ready.';
-      $('hint').textContent = def.manual ? 'Raise one hand to start' : '';
+      if (def.manual) $('hint').textContent = 'Raise one hand to start'; else renderReady();
     } else {
       setChip('ready', 'Ready'); $('repLabel').textContent = 'reps'; $('repNum').textContent = '0'; $('repOf').textContent = def.manual ? '' : '/ ' + range; renderDots([]);
-      $('hint').textContent = def.manual ? 'Raise one hand to start' : 'Starts on your first rep';
+      if (def.manual) $('hint').textContent = 'Raise one hand to start'; else renderReady();
     }
   }
   function setChip(cls, text) { const c = $('stateChip'); c.className = 'chip ' + cls; c.textContent = text; }
@@ -1146,7 +1251,7 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
           el('button', { class: 'btn small', onclick: () => { L.reps = Math.max(0, L.reps - 1); reRender(); } }, '− rep'),
           el('button', { class: 'btn small', onclick: () => { L.reps++; reRender(); } }, '+ rep'),
           el('button', { class: 'btn small', onclick: () => { L.weight = curWeight(); L.weightSrc = 'entered'; reRender(); } }, 'Set weight to ' + (curWeight() || 0)),
-          el('button', { class: 'btn small danger', onclick: undoLastSet }, 'Delete set')),
+          el('button', { class: 'btn small danger', id: 'redoPanel', onclick: redoLastSet }, 'Redo this set')),
         L.perRep.length ? el('div', { class: 'replist' }, L.perRep.map((r, i) => el('div', {}, el('span', {}, '#' + (i + 1)), el('span', {}, r.dur.toFixed(1) + ' s'), el('span', { class: r.cues.length ? 'f' : 'g' }, r.cues.join(', ') || 'clean')))) : null));
     }
     out.push(el('div', { class: 'row' },
@@ -1182,6 +1287,10 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
             S.plan = r.plan.map((d) => ({ key: uid(), ...d })); S.example = false; S.buildGaps = r.gaps; save(); renderPane();
           } }, 'Build my split')),
         S.buildGaps && S.buildGaps.length ? el('p', { class: 'note err' }, `Nothing in your equipment trains these well: ${S.buildGaps.join(', ').toLowerCase()}. A pull-up bar or a set of bands covers most gaps.`) : null),
+      el('div', { class: 'card' }, el('h3', {}, 'Rest between sets'),
+        el('div', { class: 'pills' }, [30, 60, 90, 120].map((n) => el('button', { class: 'pill', id: 'rest-' + n, 'aria-pressed': String(S.plan.every((d) => d.exercises.every((x) => x.rest === n)) && S.plan.some((d) => d.exercises.length)), onclick: () => {
+          for (const d of S.plan) for (const x of d.exercises) x.rest = n; if (sess) for (const q of sess.items) q.rest = n; touch(); if (sess) persistDraft(); renderPane(); } }, n + ' s'))),
+        el('p', { class: 'note' }, 'Sets every lift at once; you can still set each lift below. The timer is a guide and never blocks you. Research favours 60 to 90 seconds for muscle growth; 30 seconds usually costs you reps on the next set.')),
       S.example ? el('p', { class: 'note' }, 'Below is an example split with example weights. Edit anything and it becomes yours.') : el('p', { class: 'note' }, 'Changes apply to the next workout you start. Weights of 0 are filled in from your first session.'),
       ...S.plan.map((d, di) => el('div', { class: 'day' },
         el('div', { class: 'row' }, el('input', { class: 'day-name', style: 'flex:1', value: d.name, 'aria-label': 'Day name', id: 'dn-' + d.key, oninput: (e) => { d.name = e.target.value; touch(); } }),
@@ -1320,12 +1429,16 @@ Reply with JSON only: {"found": [{"id": "<id>", "evidence": "<a few words on wha
         field('Claude model', sel(T, 'model', [['claude-opus-5-5', 'Opus 5.5'], ['claude-haiku-5-5', 'Haiku 5.5 (faster, cheaper)']])),
         field('Read bar weight', sel(T, 'readBar', [['true', 'When readable'], ['false', 'Never']]))),
       el('div', { class: 'grid2' },
-        field('Voice', sel(T, 'voice', [['all', 'Rep count and cues'], ['cues', 'Cues only'], ['off', 'Off']])),
+        field('Spoken feedback', sel(T, 'voice', [['all', 'Rep count and cues'], ['cues', 'Cues only'], ['off', 'Off']])),
         field('Tracking accuracy', sel(T, 'accuracy', [['lite', 'Fast'], ['full', 'Balanced'], ['heavy', 'Most accurate']]))),
       el('div', { class: 'grid2' },
         field('Mirror the picture', sel(T, 'mirror', [['true', 'On'], ['false', 'Off']])),
         field('Camera', el('select', { id: 'f-camera', onchange: (e) => { T.camera = e.target.value; save(); } }, el('option', { value: '' }, 'Default')))),
-      el('p', { class: 'note' }, 'Accuracy, camera and mirror changes apply after you reload the page.')];
+      el('p', { class: 'note' }, 'Accuracy, camera and mirror changes apply after you reload the page.'),
+      el('div', { class: 'grid2' },
+        field('Voice', sel(T, 'voiceName', [['', 'Best available'], ...voices.map((v) => [v.name, v.name.replace(/Microsoft |Google /, '')])])),
+        el('label', { class: 'field' }, 'Hear it', el('button', { class: 'btn', id: 'voiceTest', onclick: () => say('Nice work. Eight reps, and every one looked clean. Rest up.', true) }, 'Play a sample'))),
+      el('p', { class: 'note' }, 'Voices come from your browser and computer, and some sound far more natural than others. On a Mac, downloading a Premium or Enhanced voice (System Settings, Accessibility, Spoken Content) usually adds better ones to this list.')];
     queueMicrotask(async () => {
       try {
         const s = $('f-camera'); if (!s || !navigator.mediaDevices?.enumerateDevices) return;

@@ -17,6 +17,8 @@ On a phone or tablet the page has to be served over https; a local file will not
 - First run walks through goal, training days and equipment, then builds a split.
 - Shows reps against target, a dot per rep, the coach's line and the next set on the camera view, sized to read from across the room.
 - Raise one hand and hold to end a set (or start and stop a hand-counted one).
+- Counts only from each lift's starting position, and holds the first rep back until a second follows, so setting up and loading plates are not logged as sets.
+- Redo a miscounted set from the camera view; adjust rest there too.
 - Ends each workout with a summary against last time, and tracks weekly hard sets per muscle in the Log.
 - Knows your equipment: offers only lifts you can do, swaps lifts you can't, and builds a 3, 4 or 5-day split from your goal and equipment.
 - Shows goal-based targets (weekly sets, protein, rate of gain) under **You**.
