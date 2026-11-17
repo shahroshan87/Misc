@@ -111,6 +111,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
 .checks label { display: flex; gap: 6px; align-items: center; font-size: 13px; }
 .checks input { accent-color: var(--track); width: 16px; height: 16px; }
 .note.err { color: var(--fix); }
+.scan { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
 .targets { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; }
 .field input, .field select, .field textarea, .plan-ex input, .plan-ex select, .day-name {
   background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; color: var(--fg); min-width: 0; width: 100%; }
@@ -759,7 +760,7 @@ Reply with JSON only: {"say": "<at most 2 short sentences to speak aloud>", "nex
     const target = coachMsg;
     try {
       const prior = S.history.filter((h) => h.items.some((x) => x.id === it.id)).slice(-1)[0];
-      const data = { profile: { ...S.profile, body: S.profile.body || undefined, equipment: S.profile.equipment.map((e) => EQUIP[e]) }, exercise: EX[it.id].name, target: { sets: it.sets, reps: [it.lo, it.hi], rest_seconds: it.rest },
+      const data = { profile: { ...S.profile, body: S.profile.body || undefined, equipment: [...S.profile.equipment.map((e) => EQUIP[e]), ...(S.profile.equipmentOther || [])] }, exercise: EX[it.id].name, target: { sets: it.sets, reps: [it.lo, it.hi], rest_seconds: it.rest },
         sets_today: it.done.map((d) => ({ reps: d.reps, weight: d.weight, unit: d.unit, rest_before_s: d.rest, avg_lowering_s: d.ecc, avg_lifting_s: d.con, slow: d.slow, form_flags: Object.values(d.fixes).map((f) => `${f.text} (${f.n} reps)`), per_rep: d.perRep })),
         last_session: prior ? prior.items.find((x) => x.id === it.id).done.map((d) => `${d.weight}x${d.reps}`) : null, sets_left: Math.max(0, it.sets - it.done.length) };
       const r = await claude(COACH_SYS, JSON.stringify(data));
@@ -1019,6 +1020,36 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
     return out;
   }
 
+  /* Equipment from photos: Claude lists what it can see; nothing changes until the user accepts. */
+  let eqScan = null;
+  const EQ_SYS = `You identify home-gym equipment in photos so a training app knows which exercises are possible.
+Report only equipment you can actually see; do not guess at what is out of frame. Map what you see to these ids:
+barbell (a barbell with plates), rack (squat rack, power rack or squat stands), bench (a flat bench), incline (an adjustable bench that inclines; do not also list bench), dumbbells (fixed or adjustable), kettlebell, pullupbar (any pull-up bar, including one built into a rack), dipbars (dip station, dip handles or parallel bars), bands (resistance bands), cable (cable machine, lat pulldown or pulley system).
+Reply with JSON only: {"found": [{"id": "<id>", "evidence": "<a few words on what you saw>"}], "other": ["<equipment visible that fits none of the ids>"], "limits": "<weights you can read, such as dumbbells up to 50 lb, or an empty string>"}`;
+  async function toJpeg(file) {
+    const bmp = await createImageBitmap(file), k = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.82).split(',')[1];
+  }
+  async function scanEquipment(files) {
+    if (!files.length) return;
+    eqScan = { busy: true }; renderPane();
+    try {
+      const content = [];
+      for (const f of files.slice(0, 6)) {
+        let data; try { data = await toJpeg(f); } catch (e) { throw new Error(`Could not open ${f.name}. Use JPEG or PNG photos.`); }
+        content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } });
+      }
+      content.push({ type: 'text', text: `These ${content.length} photo(s) show my home gym. List the equipment.` });
+      const r = await claude(EQ_SYS, content);
+      const seen = new Set();
+      eqScan = { found: (r.found || []).filter((f) => f && EQUIP[f.id] && !seen.has(f.id) && seen.add(f.id)).map((f) => ({ id: f.id, evidence: String(f.evidence || '') })),
+        other: (r.other || []).map(String).filter(Boolean), limits: String(r.limits || '') };
+    } catch (e) { eqScan = { err: e.message }; }
+    if (tab === 'you') renderPane();
+  }
+
   /* Goal targets shown under You. Figures and their sources are in reports/Muscle gain methods by goal.md. */
   function targetNodes() {
     const P = S.profile, n = (v) => { const x = parseFloat(v); return isFinite(x) && x > 0 ? x : null; };
@@ -1068,7 +1099,23 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
         P.equipmentSet ? null : el('p', { class: 'note' }, 'These ticks are a guess. Tick what you actually have; bodyweight lifts are always available.'),
         el('div', { class: 'checks' }, Object.entries(EQUIP).map(([id, label]) => el('label', {}, el('input', { type: 'checkbox', id: 'eq-' + id, checked: P.equipment.includes(id), onchange: (e) => {
           P.equipment = e.target.checked ? [...P.equipment, id] : P.equipment.filter((x) => x !== id); P.equipmentSet = true; save(); renderPane(); } }), ' ' + label))),
-        el('p', { class: 'note' }, `${Object.keys(EX).filter((id) => EX[id].pattern && available(id, P.equipment)).length} of ${Object.keys(EX).filter((id) => EX[id].pattern).length} lifts available. Spotter only offers lifts you can do, and the Split tab can build a split from this list.`)),
+        el('p', { class: 'note' }, `${Object.keys(EX).filter((id) => EX[id].pattern && available(id, P.equipment)).length} of ${Object.keys(EX).filter((id) => EX[id].pattern).length} lifts available. Spotter only offers lifts you can do, and the Split tab can build a split from this list.`),
+        el('div', { class: 'row' },
+          el('button', { class: 'btn small', id: 'eqPhotoBtn', disabled: !T.apiKey || (eqScan && eqScan.busy), onclick: () => $('eqPhotos').click() }, eqScan && eqScan.busy ? 'Reading photos…' : 'Identify from photos'),
+          el('input', { type: 'file', id: 'eqPhotos', accept: 'image/*', multiple: true, hidden: true, onchange: (e) => scanEquipment([...e.target.files]) }),
+          el('span', { class: 'note' }, T.apiKey ? 'Up to 6 photos of your gym. They are sent to Anthropic to be read.' : 'Photo reading needs a Claude API key (below).')),
+        eqScan && eqScan.err ? el('p', { class: 'note err' }, eqScan.err) : null,
+        eqScan && eqScan.found ? el('div', { class: 'scan' },
+          el('h3', {}, 'Seen in your photos'),
+          eqScan.found.length ? el('ul', { class: 'targets' }, eqScan.found.map((f) => el('li', {}, el('b', {}, EQUIP[f.id]), f.evidence ? ': ' + f.evidence : '', P.equipment.includes(f.id) ? ' (already ticked)' : ''))) : el('p', { class: 'note' }, 'Nothing from Spotter\'s list was clearly visible.'),
+          eqScan.other.length ? el('p', { class: 'note' }, 'Also seen, not yet used by Spotter for picking lifts: ' + eqScan.other.join(', ') + '. The coach is told about these.') : null,
+          eqScan.limits ? el('p', { class: 'note' }, 'Weights read: ' + eqScan.limits) : null,
+          el('div', { class: 'row' },
+            el('button', { class: 'btn small primary', id: 'eqApply', onclick: () => {
+              P.equipment = [...new Set([...P.equipment, ...eqScan.found.map((f) => f.id)])]; P.equipmentSet = true;
+              P.equipmentOther = eqScan.other; P.equipmentLimits = eqScan.limits; eqScan = null; save(); renderPane(); } }, 'Add these to my equipment'),
+            el('button', { class: 'btn small', onclick: () => { eqScan = null; renderPane(); } }, 'Discard'))) : null,
+        P.equipmentOther && P.equipmentOther.length ? el('p', { class: 'note' }, 'Other equipment on file: ' + P.equipmentOther.join(', ') + (P.equipmentLimits ? '. ' + P.equipmentLimits : '')) : null),
       el('div', { class: 'card' }, el('h3', {}, 'Proportions measured by camera'),
         b ? el('div', { class: 'kv' }, el('div', {}, el('b', {}, String(b.femur_to_torso)), el('span', {}, 'femur : torso')), el('div', {}, el('b', {}, String(b.shin_to_femur)), el('span', {}, 'shin : femur')), el('div', {}, el('b', {}, String(b.arm_to_torso)), el('span', {}, 'arm : torso')))
           : el('p', { class: 'note' }, 'Stand tall in full view for a couple of seconds and Spotter measures your limb proportions.'),
