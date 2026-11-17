@@ -13,10 +13,16 @@ On a phone or tablet the page has to be served over https; a local file will not
 - Tracks your body with MediaPipe Pose, on the device. Video is not uploaded.
 - Counts reps, times each rep's lowering and lifting phase, and starts and stops sets and the rest timer by itself.
 - Logs every set against your split, with the weight prefilled from the split or the last set.
-- Speaks a rep count and rule-based form cues for ten lifts.
+- Speaks a rep count and rule-based form cues.
+- Knows your equipment: offers only lifts you can do, swaps lifts you can't, and builds a 3, 4 or 5-day split from your goal and equipment.
+- Shows goal-based targets (weekly sets, protein, rate of gain) under **You**.
 - Optional, with a Claude API key entered under **You**: Claude writes the between-set coaching and reads the bar weight from one camera frame per set when the plates are clearly readable.
 
 All data stays in the browser's local storage.
+
+## Research
+
+`reports/Muscle gain methods by goal.md` is the evidence review behind the split builder and targets. The notes it was written from are in `research_notes/`.
 
 ## Tests
 

@@ -111,6 +111,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
 .checks label { display: flex; gap: 6px; align-items: center; font-size: 13px; }
 .checks input { accent-color: var(--track); width: 16px; height: 16px; }
 .note.err { color: var(--fix); }
+.targets { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; }
 .field input, .field select, .field textarea, .plan-ex input, .plan-ex select, .day-name {
   background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; color: var(--fg); min-width: 0; width: 100%; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -340,7 +341,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     3: [['Full body A', [['knee', 0], ['hpush', 0], ['hpull', 0], ['delts', 0], ['biceps', 0], ['core', 0]]],
         ['Full body B', [['hinge', 0], ['vpush', 0], ['vpull', 0], ['knee', 1], ['triceps', 0], ['calves', 0]]],
         ['Full body C', [['knee', 0], ['hpush', 1], ['vpull', 1], ['hinge', 1], ['delts', 0], ['biceps', 0], ['triceps', 1]]]],
-    4: [['Upper A', [['hpush', 0], ['hpull', 0], ['vpush', 0], ['vpull', 0], ['biceps', 0], ['triceps', 0]]],
+    4: [['Upper A', [['hpush', 0], ['hpull', 0], ['vpush', 0], ['vpull', 0], ['delts', 0], ['biceps', 0], ['triceps', 0]]],
         ['Lower A', [['knee', 0], ['hinge', 0], ['knee', 1], ['calves', 0], ['core', 0]]],
         ['Upper B', [['vpush', 0], ['vpull', 0], ['hpush', 1], ['hpull', 1], ['delts', 0], ['triceps', 1], ['biceps', 0]]],
         ['Lower B', [['hinge', 0], ['knee', 0], ['hinge', 1], ['calves', 0], ['core', 0]]]],
@@ -591,7 +592,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   const ex = (id, sets, lo, hi, weight, rest) => ({ id, sets, lo, hi, weight, rest });
   const DEFAULTS = {
     example: true,
-    profile: { goal: 'muscle', level: 'intermediate', units: 'lb', bodyweight: '', height: '', notes: '', body: null, equipment: ['barbell', 'rack', 'bench', 'dumbbells', 'pullupbar'], equipmentSet: false, days: 4 },
+    profile: { goal: 'muscle', level: 'intermediate', units: 'lb', age: '', bodyweight: '', height: '', waist: '', background: '', notes: '', body: null, equipment: ['barbell', 'rack', 'bench', 'dumbbells', 'pullupbar'], equipmentSet: false, days: 4 },
     settings: { apiKey: '', model: 'claude-opus-5-5', voice: 'all', mirror: true, accuracy: 'lite', readBar: true, camera: '' },
     plan: [
       { key: uid(), name: 'Push', exercises: [ex('ohp', 3, 6, 8, 95, 150), ex('bench', 3, 6, 10, 135, 150), ex('lateral', 3, 12, 15, 15, 75), ex('pushup', 2, 10, 20, 0, 90)] },
@@ -1018,19 +1019,50 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
     return out;
   }
 
+  /* Goal targets shown under You. Figures and their sources are in reports/Muscle gain methods by goal.md. */
+  function targetNodes() {
+    const P = S.profile, n = (v) => { const x = parseFloat(v); return isFinite(x) && x > 0 ? x : null; };
+    const bw = n(P.bodyweight), kg = bw && (P.units === 'kg' ? bw : bw / 2.2046), h = n(P.height), w = n(P.waist), age = n(P.age), u = P.units;
+    const r1 = (x) => (Math.round(x * 10) / 10).toString();
+    const lines = [];
+    if (P.goal === 'general') lines.push('Train every major muscle group at least 2 days a week. Showing up consistently matters more than the exact programme.');
+    else lines.push(P.goal === 'strength' ? 'Lift heavy on your main lifts (sets of 3 to 6) with long rests, and keep some higher-rep work for size.'
+      : 'Aim for 10 or more hard sets per muscle each week, ending most sets 1 to 2 reps short of failure. The built split is sized for this.');
+    lines.push(kg ? `Protein: ${Math.round(kg * 1.6)} to ${Math.round(kg * 2.2)} g a day (1.6 to 2.2 g per kg), spread over 3 or more meals.` : 'Protein: 1.6 to 2.2 g per kg of bodyweight a day. Enter your bodyweight for a number.');
+    if (P.goal === 'muscle' || P.goal === 'strength') lines.push(bw ? `Weight gain: ${r1(bw * 0.0025)} to ${r1(bw * 0.005)} ${u} a week (0.25 to 0.5% of bodyweight). Faster mostly adds fat.` : 'Weight gain: 0.25 to 0.5% of bodyweight a week. Faster mostly adds fat.');
+    if (P.goal === 'fatloss') lines.push(bw ? `Weight loss: about ${r1(bw * 0.007)} ${u} a week or slower, which protects muscle better than faster loss.` : 'Weight loss: about 0.7% of bodyweight a week or slower protects muscle better than faster loss.');
+    if (P.goal !== 'general') lines.push('Creatine monohydrate, 3 to 5 g a day, is the best-supported supplement. Sleep 7 hours or more.');
+    if (h && w) { const ratio = w / h; lines.push(`Waist-to-height: ${ratio.toFixed(2)}. UK guidance (NICE) is to keep it under 0.5${ratio >= 0.5 && P.goal === 'muscle' ? ', so hold your weight steady and build muscle at maintenance before adding a surplus' : ''}.`); }
+    if (P.background === 'southasian') {
+      if (P.goal === 'muscle' || P.goal === 'strength') lines.push('Gain at the slow end and watch your waist. In a small overfeeding study, young South Asian men lost more insulin sensitivity from rapid weight gain than white European men did.');
+      lines.push('Ask your doctor about a baseline blood sugar and cholesterol check. UK and US guidance screens South Asian adults earlier and at a lower BMI (23).');
+      lines.push('A 12-week trial found South Asian and white European men built muscle equally well from the same training.');
+    }
+    if (age && age >= 30 && age < 46) lines.push('Trials have not found a meaningful drop in muscle gain before the mid-40s. Add load gradually, since tendons adapt more slowly than muscle.');
+    return [el('h3', {}, 'Your targets'), el('ul', { class: 'targets' }, lines.map((t) => el('li', {}, t))),
+      el('p', { class: 'note' }, 'General guidance from published research, not medical advice. Check with a doctor first if you have kidney disease or diabetes.')];
+  }
+
   function paneYou() {
     const P = S.profile, T = S.settings;
     const field = (label, node) => el('label', { class: 'field' }, label, node);
+    const len = P.units === 'kg' ? 'cm' : 'in';
+    const refreshTargets = () => { const t = $('targets'); if (t) t.replaceChildren(...targetNodes()); };
     const bind = (obj, key, attrs = {}) => ({ id: 'f-' + key, value: obj[key], oninput: (e) => { obj[key] = e.target.value; save(); }, ...attrs });
     const sel = (obj, key, opts, after) => el('select', { id: 'f-' + key, onchange: (e) => { const v = e.target.value; obj[key] = v === 'true' ? true : v === 'false' ? false : v; save(); if (after) after(); } },
       opts.map(([v, t]) => el('option', { value: v, selected: String(obj[key]) === String(v) }, t)));
     const b = P.body;
     const out = [el('h2', {}, 'You'),
-      field('Main goal', sel(P, 'goal', [['muscle', 'Build muscle'], ['strength', 'Get stronger'], ['fatloss', 'Lose fat, keep muscle'], ['general', 'General fitness']])),
+      field('Main goal', sel(P, 'goal', [['muscle', 'Build muscle'], ['strength', 'Get stronger'], ['fatloss', 'Lose fat, keep muscle'], ['general', 'General fitness']], refreshTargets)),
       el('div', { class: 'grid2' },
         field('Experience', sel(P, 'level', [['beginner', 'Under 1 year'], ['intermediate', '1–3 years'], ['advanced', '3+ years']])),
-        field('Units', sel(P, 'units', [['lb', 'Pounds'], ['kg', 'Kilograms']], () => { renderHud(); }))),
-      el('div', { class: 'grid2' }, field('Bodyweight', el('input', bind(P, 'bodyweight', { inputmode: 'decimal' }))), field('Height', el('input', bind(P, 'height')))),
+        field('Units', sel(P, 'units', [['lb', 'Pounds'], ['kg', 'Kilograms']], () => { renderHud(); renderPane(); }))),
+      el('div', { class: 'grid2' }, field('Age', el('input', bind(P, 'age', { inputmode: 'numeric', oninput: (e) => { P.age = e.target.value; save(); refreshTargets(); } }))),
+        field(`Bodyweight (${P.units})`, el('input', bind(P, 'bodyweight', { inputmode: 'decimal', oninput: (e) => { P.bodyweight = e.target.value; save(); refreshTargets(); } })))),
+      el('div', { class: 'grid2' }, field(`Height (${len})`, el('input', bind(P, 'height', { inputmode: 'decimal', oninput: (e) => { P.height = e.target.value; save(); refreshTargets(); } }))),
+        field(`Waist (${len})`, el('input', bind(P, 'waist', { inputmode: 'decimal', oninput: (e) => { P.waist = e.target.value; save(); refreshTargets(); } })))),
+      field('Background (optional, adjusts health guidance)', sel(P, 'background', [['', 'Not set'], ['southasian', 'South Asian'], ['other', 'Other']], refreshTargets)),
+      el('div', { class: 'card', id: 'targets' }, targetNodes()),
       field('Injuries, limits, anything the coach should know', el('textarea', bind(P, 'notes', { rows: 3 }))),
       el('div', { class: 'card' }, el('h3', {}, 'Your equipment'),
         P.equipmentSet ? null : el('p', { class: 'note' }, 'These ticks are a guess. Tick what you actually have; bodyweight lifts are always available.'),
