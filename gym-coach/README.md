@@ -38,6 +38,8 @@ Each workout with the camera on is recorded: the joint angles measured about 15 
 
 Recordings with photos show the lifter and their home. Commit only the copy saved without photos.
 
+`sessions/` holds real recordings, numbers only, each with the sets the lifter did under `expect`. The engine tests replay every one, so a tracking change that breaks a real session fails the tests.
+
 ## Tests
 
 `node gym-coach/test/engine.test.mjs` runs the tracking engine against synthetic joint-angle traces and a synthetic recording.

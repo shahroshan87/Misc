@@ -189,6 +189,17 @@ function* chain(...gens) { for (const g of gens) yield* g; }
   assert.deepEqual(segs.map((x) => [x.id, x.replayed.sets]), [['squat', [3]], ['row', [4]]], 'replay reproduces the sets, and ignores the arm bends before the hinge');
   assert.equal(segs[1].flags.length, 1); assert.equal(segs[1].signal.name, 'elbow'); assert.ok(segs[1].ready > 0 && segs[1].notReady > 0);
 }
+// 16. Two people in view: follow whoever is in position, and never switch mid-set.
+{
+  const { choosePose } = globalThis.GymEngine, def = EX.bench;
+  const lifter = { m: { ...base, lean: 88, wristsUp: 1 }, x: 0.6, y: 0.7 }, bystander = { m: { ...base, lean: 5, wristsUp: 0, seen: { ...SEEN, wr: 0.2 } }, x: 0.08, y: 0.3 };
+  assert.equal(choosePose([bystander, lifter], def, { x: 0.08, y: 0.3 }, false), 1, 'the person lying on the bench wins, even if the bystander was followed before');
+  const upLifter = { ...lifter, m: { ...base, lean: 10, wristsUp: 0 } };
+  assert.equal(choosePose([{ ...bystander, m: { ...base, lean: 5 } }, upLifter], def, { x: 0.6, y: 0.7 }, false), 1, 'between sets it stays with the same person');
+  const waving = { m: { ...base, lean: 88, wristsUp: 1 }, x: 0.08, y: 0.3 };
+  assert.equal(choosePose([waving, { ...lifter, m: { ...base, lean: 88, wristsUp: 0 } }], def, { x: 0.6, y: 0.7 }, true), 1, 'mid-set it does not switch');
+  assert.equal(choosePose([], def, null, false), -1);
+}
 // 11. Equipment: lifts are offered only when the equipment allows, and built splits respect that.
 {
   const all = Object.keys(EQUIP);
@@ -215,6 +226,16 @@ function* chain(...gens) { for (const g of gens) yield* g; }
   const weekly = {};
   for (const d of home.plan) for (const e of d.exercises) weekly[EX[e.id].pattern] = (weekly[EX[e.id].pattern] || 0) + e.sets;
   console.log('weekly direct sets, 4-day muscle split, typical home gym:', JSON.stringify(weekly));
+}
+// 17. Real sessions: every recording in sessions/ must still replay to the sets its lifter did.
+{
+  const dir = fileURLToPath(new URL('../sessions/', import.meta.url));
+  for (const f of fs.existsSync(dir) ? fs.readdirSync(dir).filter((x) => x.endsWith('.json')) : []) {
+    const rec = JSON.parse(fs.readFileSync(dir + f, 'utf8')), got = {};
+    for (const seg of replay(rec, globalThis.GymEngine)) (got[seg.id] = got[seg.id] || []).push(seg.replayed.sets);
+    assert.deepEqual(got, rec.expect, f);
+    console.log('session', f, 'replays to', JSON.stringify(got));
+  }
 }
 for (const [id, d] of Object.entries(EX)) if (!d.manual) assert.ok(d.hi > d.lo && d.joints.length && d.maxRep, id);
 console.log('engine: all checks passed');

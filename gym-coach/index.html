@@ -321,7 +321,8 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
      first: which half of the rep comes first, 'ecc' (lowering) or 'con' (lifting). gap: quiet seconds that end a set.
      start: the lift's starting position. Reps only count when the lifter has held it, so walking about, loading plates
      or reaching for the bar is ignored. gate: what must also be true at the far end of the rep. tip: how to get into
-     position, shown until the lifter is there. views: camera angles the lift tracks well from. */
+     position, shown until the lifter is there. views: camera angles the lift tracks well from. stay: a looser posture
+     that holds for the whole set; leaving it for two seconds (sitting up from the bench) ends the set at once. */
   const up = (m) => m.wristsUp === 1, down = (m) => m.wristsUp === 0;
   const hang = (m) => m.elbow > 140 && m.wristDrop > 0.3, tall = (m) => m.lean < 30 && m.wristDrop > 0.3;
   const SIDE = ['side', 'angled'], FRONT = ['front', 'angled'];
@@ -336,15 +337,15 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
                 start: hang, gate: hang, tip: 'Stand tall holding the weight with straight arms' },
     press:    { signal: 'elbow', rest: 'low', hi: 150, lo: 100, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Front or 45°', views: FRONT, gate: up, form: 'ohp',
                 start: (m) => m.handsHigh === 1 && m.lean < 35 && m.wristDrop < 0.25, tip: 'Bring the weight to your shoulders' },
-    bench:    { signal: 'elbow', rest: 'high', hi: 150, lo: 105, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Side-on, camera at bench height', form: 'tempo', beta: true,
-                start: (m) => m.wristsUp === 1 && m.lean > 25, tip: 'Lie back and hold the weight at arm\'s length' },
-    pushup:   { signal: 'elbow', rest: 'high', hi: 150, lo: 110, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on, camera low', form: 'pushup',
+    bench:    { signal: 'elbow', rest: 'high', hi: 150, lo: 105, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Side-on, camera at bench height', form: 'tempo', beta: true, stay: (m) => m.lean > 35 && m.seen.hip >= 0.5,
+                start: (m) => m.wristsUp === 1 && m.lean > 35, tip: 'Lie back and hold the weight at arm\'s length' },
+    pushup:   { signal: 'elbow', rest: 'high', hi: 150, lo: 110, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on, camera low', form: 'pushup', stay: (m) => m.lean > 40,
                 start: (m) => m.lean > 45, tip: 'Get into a straight-arm plank' },
     dip:      { signal: 'elbow', rest: 'high', hi: 150, lo: 105, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on', form: 'dip',
                 start: (m) => m.lean < 40 && m.wristDrop > 0.3, tip: 'Support yourself on straight arms' },
-    row:      { signal: 'elbow', rest: 'high', hi: 145, lo: 105, first: 'con', joints: ['sh', 'el', 'wr', 'hip'], gap: 8, maxRep: 8, view: 'Side-on', views: SIDE, form: 'row',
+    row:      { signal: 'elbow', rest: 'high', hi: 145, lo: 105, first: 'con', joints: ['sh', 'el', 'wr', 'hip'], gap: 8, maxRep: 8, view: 'Side-on', views: SIDE, form: 'row', stay: (m) => m.lean > 20,
                 start: (m) => m.lean > 25 && m.wristDrop > 0.25, tip: 'Hinge forward and let the weight hang at arm\'s length' },
-    pull:     { signal: 'elbow', rest: 'high', hi: 145, lo: 95, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Front or behind', views: FRONT, gate: up, form: 'pullup',
+    pull:     { signal: 'elbow', rest: 'high', hi: 145, lo: 95, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Front or behind', views: FRONT, gate: up, form: 'pullup', stay: up,
                 start: up, tip: 'Hang from the bar with straight arms' },
     curl:     { signal: 'elbow', rest: 'high', hi: 140, lo: 75, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Front or side-on', form: 'curl',
                 start: tall, gate: (m) => m.handsHigh === 1, tip: 'Stand tall with your arms straight down' },
@@ -546,7 +547,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
       this.state = 'unknown'; this.reps = []; this.sm = null; this.lastT = null;
       this.lost = null; this.view = 'angled'; this.tStart = null; this.manualStart = null;
       this.hist = []; this.settle = null;
-      this.ready = false; this.poseSince = null; this.posedAt = -1e9; this.readyAt = -1e9; this.unposed = null; this.pending = null; this.valid = false;
+      this.ready = false; this.poseSince = null; this.posedAt = -1e9; this.readyAt = -1e9; this.unposed = null; this.pending = null; this.valid = false; this.away = null;
     }
     get active() { return this.reps.length > 0 || this.manualStart != null; }
     get moving() { return this.state === 'out' || this.state === 'far'; }
@@ -561,7 +562,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
           if (this.pending) { this.pending = null; ev.push({ type: 'cancel' }); }
           if (this.reps.length) ev.push(this._end());
         }
-        this.lastT = t; this.ready = false; return ev;
+        this.lastT = t; if (t - this.lost > 0.4) this.ready = false; return ev;      // a dropped frame or two does not undo "in position"
       }
       this.lost = null; this.view = m.view;
       const raw = m[d.signal], dt = this.lastT == null ? 0 : Math.max(0, t - this.lastT);
@@ -621,6 +622,12 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
           this.state = 'rest';
         } else if (t - this.tLeave > d.maxRep) { this.state = 'unknown'; }
       }
+      if (d.stay) { if (d.stay(m)) this.away = null; else if (this.away == null) this.away = t; }
+      if (this.away != null && t - this.away > 2 && (this.reps.length || this.pending)) {
+        this.state = 'unknown'; this.settle = null;
+        if (this.pending) { this.pending = null; ev.push({ type: 'cancel' }); }
+        if (this.reps.length) ev.push(this._end());
+      }
       if (this.pending && !this.moving && t - this.pending.rep.t > d.gap) { this.pending = null; ev.push({ type: 'cancel' }); }
       if (this.reps.length && !this.moving) {
         const quiet = t - this.reps[this.reps.length - 1].t > d.gap;
@@ -652,7 +659,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
       if (n >= 3) { const base = Math.min(reps[0].con, reps[1].con); if (base > 0.15) slow = reps[n - 1].con / base - 1; }
       const set = { reps: n, tStart, tEnd, dur: tEnd - tStart, ecc: avg((r) => r.ecc), con: avg((r) => r.con), slow, fixes, tracked: n > 0,
         perRep: reps.map((r) => ({ dur: +r.dur.toFixed(2), ecc: +r.ecc.toFixed(2), con: +r.con.toFixed(2), ext: Math.round(r.ext), cues: r.cues.map((c) => c.text) })) };
-      this.reps = []; this.tStart = null; this.manualStart = null;
+      this.reps = []; this.tStart = null; this.manualStart = null; this.away = null;
       return { type: 'setEnd', t: tEnd, set };
     }
   }
@@ -706,14 +713,27 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     return { t: row[0], m };
   }
 
-  root.GymEngine = { FRAME_FIELDS, packFrame, unpackFrame, weeklySets, J, EX, EQUIP, PATTERNS, measure, missing, Tracker, ruleCoach, ang, available, lacking, options, buildSplit };
+  /* More than one person in view: follow the lifter, not the bystander. cands: [{ m, x, y }] with x, y the shoulder
+     midpoint in the picture. last: where the followed person was. busy: a set is under way, so do not switch. */
+  function choosePose(cands, def, last, busy) {
+    let best = -1, top = -Infinity;
+    cands.forEach((c, i) => {
+      let sc = 0;
+      if (def && !def.manual) { sc -= missing(def, c.m).length; if (def.start && def.start(c.m)) sc += 3; }
+      if (last && Math.hypot(c.x - last.x, c.y - last.y) < 0.15) sc += busy ? 8 : 1.5;
+      if (sc > top) { top = sc; best = i; }
+    });
+    return best;
+  }
+
+  root.GymEngine = { choosePose, FRAME_FIELDS, packFrame, unpackFrame, weeklySets, J, EX, EQUIP, PATTERNS, measure, missing, Tracker, ruleCoach, ang, available, lacking, options, buildSplit };
 })(typeof window !== 'undefined' ? window : globalThis);
 </script>
 
 <script id="app">
 (function () {
   'use strict';
-  const { packFrame, weeklySets, EX, EQUIP, PATTERNS, measure, missing, Tracker, ruleCoach, available, lacking, options, buildSplit } = window.GymEngine;
+  const { choosePose, packFrame, weeklySets, EX, EQUIP, PATTERNS, measure, missing, Tracker, ruleCoach, available, lacking, options, buildSplit } = window.GymEngine;
   const $ = (id) => document.getElementById(id);
   const el = (tag, attrs = {}, ...kids) => {
     const n = document.createElement(tag);
@@ -808,7 +828,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     const did = sess.items.some((i) => i.done.length);
     if (did) { summary = summarise(sess); S.history.push({ id: sess.id, date: sess.date, dayName: sess.dayName, items: sess.items.filter((i) => i.done.length).map((i) => ({ id: i.id, lo: i.lo, hi: i.hi, done: i.done })) }); }
     S.draft = null; save();
-    if (rec) { rec.ended = rt(); rec.summary = summary; lastRec = rec; rec = null; if (lastRec.frames.length) recStore(lastRec); else lastRec = null; }
+    if (rec) { rec.ended = rt(); rec.fps = rec.ended ? r2(recLoop / rec.ended) : null; rec.summary = summary; lastRec = rec; rec = null; if (lastRec.frames.length) recStore(lastRec); else lastRec = null; }
     $('flagSheet').hidden = true;
     sess = null; tracker = null; phase = 'idle'; restFrom = null; coachMsg = null; lastSet = null; dots = [];
     if (did) say('Workout saved.');
@@ -870,8 +890,8 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   /* ---------- Session recording ----------
      Records what the camera measured and what Spotter decided, plus a few still photos, so a session can be reviewed
      and replayed later. No video. Nothing leaves the browser unless the lifter saves the file. */
-  const BUILD = '2026-11-17e';
-  let rec = null, lastRec = null, recF = 0, recL = 0, recList = [], posPhoto = false, lastAlertRec = '';
+  const BUILD = '2026-11-19a';
+  let rec = null, lastRec = null, recLoop = 0, recF = 0, recL = 0, recList = [], posPhoto = false, lastAlertRec = '';
   const r2 = (x) => (x == null || !isFinite(x) ? null : Math.round(x * 100) / 100);
   const rt = () => r2(clock() - rec.t0);
   function recStart() {
@@ -882,7 +902,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
       profile: { goal: P.goal, level: P.level, units: P.units, equipment: P.equipment, body: P.body },
       plan: sess.items.map((i) => ({ id: i.id, sets: i.sets, lo: i.lo, hi: i.hi, rest: i.rest })),
       fields: window.GymEngine.FRAME_FIELDS, frames: [], lm: [], events: [], photos: [], notes: '' };
-    recF = recL = 0; posPhoto = false; lastAlertRec = '';
+    recF = recL = recLoop = 0; posPhoto = false; lastAlertRec = '';
     const it = item(); if (it) recEvent('lift', { id: it.id, idx: sess.idx, done: it.done.length });
   }
   function recEvent(type, data) { if (rec) rec.events.push({ t: rt(), type, ...data }); }
@@ -1070,15 +1090,19 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
   const video = $('video'), canvas = $('overlay'), ctx = canvas.getContext('2d');
   const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
   const MODEL = (v) => `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_${v}/float16/1/pose_landmarker_${v}.task`;
-  let landmarker = null, fileMode = false, running = false, lastVideoTime = -1, lastM = null, fileBase = 0;
+  let lm2 = null, multi = false, lastProbe = 0, soloSince = null;
+  let landmarker = null, fileMode = false, running = false, lastVideoTime = -1, lastM = null, fileBase = 0, lastSpot = null, people = 0, peopleRec = 0, peopleAt = 0;
   const clock = () => (fileMode ? fileBase + video.currentTime : performance.now() / 1000);
 
   async function loadModel() {
     $('gateMsg').textContent = 'Loading the pose model (about 6 MB the first time)…';
     const vision = await import(MP + '/vision_bundle.mjs');
     const files = await vision.FilesetResolver.forVisionTasks(MP + '/wasm');
-    const make = (delegate) => vision.PoseLandmarker.createFromOptions(files, { baseOptions: { modelAssetPath: MODEL(S.settings.accuracy), delegate }, runningMode: 'VIDEO', numPoses: 1 });
-    try { landmarker = await make('GPU'); } catch (e) { landmarker = await make('CPU'); }
+    const make = (delegate, numPoses) => vision.PoseLandmarker.createFromOptions(files, { baseOptions: { modelAssetPath: MODEL(S.settings.accuracy), delegate }, runningMode: 'VIDEO', numPoses });
+    let delegate = 'GPU';
+    try { landmarker = await make('GPU', 1); } catch (e) { delegate = 'CPU'; landmarker = await make('CPU', 1); }
+    // A second tracker that can see two people. It costs speed, so it only runs all the time while a second person is in view.
+    make(delegate, 2).then((x) => { lm2 = x; }).catch(() => { lm2 = null; });
   }
   async function begin(source) {
     const lock = (v) => { for (const id of ['startCam', 'pickFile']) { const b = $(id); if (b) b.disabled = v; } };
@@ -1153,9 +1177,25 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
     if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
       lastVideoTime = video.currentTime;
       let res = null;
-      try { res = landmarker.detectForVideo(video, performance.now()); } catch (e) { /* skip frame */ }
-      const p = res && res.landmarks && res.landmarks[0], w = res && res.worldLandmarks && res.worldLandmarks[0];
-      lastM = p && w ? measure(w, p, video.videoWidth / video.videoHeight) : null;
+      try {
+        const ms = performance.now();
+        if (lm2 && (multi || ms - lastProbe > 2500)) {
+          lastProbe = ms; res = lm2.detectForVideo(video, ms);
+          if (res.landmarks.length >= 2) { multi = true; soloSince = null; }
+          else if (multi) { if (soloSince == null) soloSince = ms; if (ms - soloSince > 5000) multi = false; }
+        } else res = landmarker.detectForVideo(video, ms);
+      } catch (e) { /* skip frame */ }
+      // Measure everyone in view, then follow the lifter.
+      const cands = [];
+      if (res && res.landmarks && res.worldLandmarks) for (let i = 0; i < res.landmarks.length; i++) {
+        const lp = res.landmarks[i], lw = res.worldLandmarks[i]; if (!lp || !lw) continue;
+        cands.push({ m: measure(lw, lp, video.videoWidth / video.videoHeight), x: (lp[11].x + lp[12].x) / 2, y: (lp[11].y + lp[12].y) / 2, p: lp, w: lw });
+      }
+      const pick = cands.length ? choosePose(cands, tracker && tracker.def, lastSpot, !!tracker && (tracker.active || tracker.moving || !!tracker.pending)) : -1;
+      const who = pick >= 0 ? cands[pick] : null, p = who && who.p, w = who && who.w;
+      lastM = who ? who.m : null; if (who) lastSpot = { x: who.x, y: who.y };
+      people = cands.length; recLoop++;
+      if (people !== peopleRec && clock() - peopleAt > 1) { peopleRec = people; peopleAt = clock(); recEvent('people', { n: people }); }
       recFrame(lastM, w);
       draw(p);
       if (lastM) sampleBody(lastM);
@@ -1183,7 +1223,7 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
   function setFocus(on) { document.querySelector('.app').classList.toggle('focus', on); $('panelToggle').textContent = on ? 'Show panel' : 'Hide panel'; }
   $('redoBtn').onclick = redoLastSet; $('restLess').onclick = () => adjustRest(-15); $('restMore').onclick = () => adjustRest(15);
   $('panelToggle').onclick = () => setFocus(!document.querySelector('.app').classList.contains('focus'));
-  let wasReady = false, lastChime = -1e9, viewBadSince = null, viewTold = false;
+  let wasReady = false, lastChime = -1e9, viewBadSince = null, viewTold = false, alertOn = false, alertBad = null, alertOk = null, alertText = '', alertAt = 0;
   /* Between sets on a tracked lift: say how to get into position, and confirm when the lifter is there. */
   function renderReady() {
     const def = tracker.def, rdy = tracker.ready;
@@ -1207,7 +1247,7 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
     }
     if (def.manual) note.textContent = 'Counted by hand';
     else if (!lastM) problem = 'Step into view';
-    else { const miss = missing(def, lastM); if (miss.length) problem = `Step back: can't see your ${miss.join(' or ')}`; else note.textContent = `Tracking · ${lastM.view} view · best: ${def.view}`; }
+    else { const miss = missing(def, lastM); if (miss.length) problem = `Step back: can't see your ${miss.join(' or ')}`; else note.textContent = `Tracking · ${lastM.view} view · best: ${def.view}` + (people > 1 ? ' · 2 people in view, following the lifter' : ''); }
     // Camera angle: ask for a better one before the set, never during it.
     if (!problem && lastM && def.views && !def.views.includes(lastM.view) && phase !== 'work' && !tracker.pending) {
       if (viewBadSince == null) viewBadSince = clock();
@@ -1217,9 +1257,13 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
       }
     } else viewBadSince = null;
     if (problem) note.textContent = '';
-    const showAlert = !!problem && running && (!resting || r >= it.rest * 0.75);
-    alert.hidden = !showAlert; if (showAlert) alert.textContent = problem;
-    if ((showAlert ? problem : '') !== lastAlertRec) { lastAlertRec = showAlert ? problem : ''; recEvent('alert', { text: lastAlertRec }); }
+    // The banner appears only when a problem has lasted over a second, and clears only after things have been fine for a moment.
+    const want = !!problem && running && (!resting || r >= it.rest * 0.75), now = clock();
+    if (want) { alertOk = null; if (alertBad == null) alertBad = now; if (!alertOn && now - alertBad > 1.2) { alertOn = true; alertText = problem; alertAt = now; } }
+    else { alertBad = null; if (alertOk == null) alertOk = now; if (alertOn && now - alertOk > 0.6) alertOn = false; }
+    if (alertOn && want && problem !== alertText && now - alertAt > 1.5) { alertText = problem; alertAt = now; }
+    alert.hidden = !alertOn; if (alertOn) alert.textContent = alertText;
+    if ((alertOn ? alertText : '') !== lastAlertRec) { lastAlertRec = alertOn ? alertText : ''; recEvent('alert', { text: lastAlertRec }); }
     // Rest timer
     const tb = $('timerBox');
     if (resting) {
