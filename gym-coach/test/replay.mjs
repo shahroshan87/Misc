@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import zlib from 'node:zlib';
 
 export function loadEngine() {
   const html = fs.readFileSync(fileURLToPath(new URL('../index.html', import.meta.url)), 'utf8');
@@ -23,7 +24,7 @@ export function replay(rec, E = loadEngine()) {
     const inSeg = (e) => e.t >= t0 && e.t < t1;
     const frames = rec.frames.filter((f) => f[0] >= t0 && f[0] < t1);
     const seg = { id: l.id, name: def ? def.name : l.id, t0, t1, frames: frames.length, noPerson: 0, notReady: 0, ready: 0, views: {}, hidden: {},
-      recorded: { sets: [], dropped: 0 }, replayed: { sets: [], dropped: 0, events: [] }, flags: [], edits: [], signal: null };
+      recorded: { sets: [], dropped: 0 }, replayed: { sets: [], dropped: 0, events: [], detail: [] }, flags: [], edits: [], signal: null };
     for (const e of rec.events.filter(inSeg)) {
       if (e.type === 'setEnd') seg.recorded.sets.push(e.reps);
       else if (e.type === 'cancel') seg.recorded.dropped++;
@@ -33,9 +34,9 @@ export function replay(rec, E = loadEngine()) {
     if (!def || def.manual) return seg;
     const tr = new E.Tracker(l.id); let lo = Infinity, hi = -Infinity;
     for (const row of frames) {
-      const { t, m } = E.unpackFrame(row);
+      const { t, m } = E.unpackFrame(row, rec.fields);
       for (const e of tr.update(t, m)) {
-        if (e.type === 'setEnd') seg.replayed.sets.push(e.set.reps); else if (e.type === 'cancel') seg.replayed.dropped++;
+        if (e.type === 'setEnd') { seg.replayed.sets.push(e.set.reps); seg.replayed.detail.push({ reps: e.set.reps, short: e.set.short, lastShort: e.set.lastShort, missed: e.set.missed, ends: e.set.perRep.map((r) => r.ext) }); } else if (e.type === 'cancel') seg.replayed.dropped++;
         seg.replayed.events.push({ t: +(e.type === 'setEnd' || e.type === 'setStart' ? e.t : t).toFixed(2), type: e.type, n: e.rep && e.rep.n });
       }
       if (!m) { seg.noPerson++; continue; }
@@ -56,7 +57,7 @@ const pct = (n, d) => (d ? Math.round(n / d * 100) + '%' : '-');
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [file, ...flags] = process.argv.slice(2);
   if (!file) { console.error('usage: node replay.mjs <recording.json> [--photos <dir>] [--events]'); process.exit(1); }
-  const rec = JSON.parse(fs.readFileSync(file, 'utf8')), E = loadEngine();
+  const rec = JSON.parse(file.endsWith('.gz') ? zlib.gunzipSync(fs.readFileSync(file)).toString('utf8') : fs.readFileSync(file, 'utf8')), E = loadEngine();
   console.log(`Recording ${rec.started} · ${rec.day} · build ${rec.build} · ${clockOf(rec.ended || 0)} long · ${rec.frames.length} frames · ${rec.photos.length} photos · video ${rec.video.join('x')}`);
   console.log(`Profile: ${JSON.stringify(rec.profile)}`);
   if (rec.notes) console.log(`Notes: ${rec.notes}`);
@@ -66,6 +67,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     console.log(`  sets in the session: [${s.recorded.sets.join(', ')}]  dropped single reps: ${s.recorded.dropped}`);
     if (s.signal) {
       console.log(`  sets when replayed:  [${s.replayed.sets.join(', ')}]  dropped single reps: ${s.replayed.dropped}`);
+      for (const d of s.replayed.detail) console.log(`    ${d.reps} reps · end of range per rep: ${d.ends.join(' ')}` + (d.short ? ` · ${d.short} short` : '') + (d.missed ? ` · ${d.missed} missed` : ''));
       console.log(`  ${s.signal.name} ranged ${s.signal.min}-${s.signal.max} (rest zone ${s.signal.restZone}, far zone ${s.signal.farZone})`);
       console.log(`  in position ${pct(s.ready, s.frames)} of frames · idle and out of position ${pct(s.notReady, s.frames)} · nobody in view ${pct(s.noPerson, s.frames)}`);
       console.log(`  view: ${Object.entries(s.views).map(([k, v]) => `${k} ${pct(v, s.frames)}`).join(', ') || '-'}` + (Object.keys(s.hidden).length ? ` · hidden joints: ${Object.entries(s.hidden).map(([k, v]) => `${k} ${pct(v, s.frames)}`).join(', ')}` : ''));

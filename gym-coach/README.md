@@ -19,6 +19,10 @@ On a phone or tablet the page has to be served over https; a local file will not
 - Raise one hand and hold to end a set (or start and stop a hand-counted one).
 - Counts only from each lift's starting position, and holds the first rep back until a second follows, so setting up and loading plates are not logged as sets.
 - Redo a miscounted set from the camera view; adjust rest there too.
+- Flags reps that fall short of the lifter's other reps and attempts that fail, asks how many reps were left, and adjusts the advice.
+- Barbell lifts are entered as plates a side; suggestions only use weights the lifter's plates can make.
+- Speaks framing problems per lift: cut off at an edge, hands about to leave the picture, wrong angle.
+- Sets the camera missed can be logged by hand, and lifts stepped through, from the camera view.
 - Ends each workout with a summary against last time, and tracks weekly hard sets per muscle in the Log.
 - Knows your equipment: offers only lifts you can do, swaps lifts you can't, and builds a 3, 4 or 5-day split from your goal and equipment.
 - Shows goal-based targets (weekly sets, protein, rate of gain) under **You**.

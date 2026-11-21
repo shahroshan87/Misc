@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
+import zlib from 'node:zlib';
 import { replay } from './replay.mjs';
 
 const html = fs.readFileSync(fileURLToPath(new URL('../index.html', import.meta.url)), 'utf8');
@@ -71,9 +72,14 @@ function* chain(...gens) { for (const g of gens) yield* g; }
   const press = (top) => repTrace('elbow', 60, top, 0.9, 1.1, (k) => ({ wristsUp: 1, wristDrop: 0.05 - 0.5 * k }));
   let r = run('ohp', chain(hold(rack, 1), swing(), swing(), hold(rack, 10)));
   assert.equal(of(r.ev, 'rep').length, 0);
-  r = run('ohp', chain(hold(rack, 1), press(172), press(172), press(153), hold(rack, 10)));
+  r = run('ohp', chain(hold(rack, 1), press(172), press(172), press(172), press(150), hold(rack, 10)));
   const set = of(r.ev, 'setEnd')[0].set;
-  assert.equal(set.reps, 3); assert.equal(set.fixes.lockout.n, 1);
+  assert.equal(set.reps, 4); assert.equal(set.fixes.short.n, 1); assert.equal(set.lastShort, true, 'a rep well short of the others is marked');
+  // a press that reads only 140 at the top still counts (camera low, hands near the edge of the picture)
+  assert.equal(of(run('ohp', chain(hold(rack, 1), press(142), press(140), press(141), hold(rack, 10))).ev, 'setEnd')[0].set.reps, 3);
+  // a half press after real reps is a missed rep, not a rep
+  const half = run('ohp', chain(hold(rack, 1), press(170), press(170), press(170), repTrace('elbow', 60, 122, 0.6, 0.6, (k) => ({ wristsUp: 1, wristDrop: 0.05 - 0.25 * k })), hold(rack, 10)));
+  const hs = of(half.ev, 'setEnd')[0].set; assert.equal(hs.reps, 3); assert.equal(hs.missed, 1); assert.equal(of(half.ev, 'miss').length, 1);
   assert.ok(Math.abs(set.con - 0.9) < 0.25, 'pressing up is the lifting phase');
 }
 // 6. Curl with body swing is flagged; grinding last rep shows up as slowdown.
@@ -116,6 +122,11 @@ function* chain(...gens) { for (const g of gens) yield* g; }
   assert.equal(m.raise, 1, 'one hand above the head, the other down, is the signal');
   w[16] = P(0, -0.9, 0.15); m = measure(w, img(w), 16 / 9);
   assert.equal(m.raise, 0, 'both hands overhead (a press or pull-up) is not');
+  // knees on the straight hip-to-ankle line read zero; a knee 5 cm inside it on a 0.9 m leg reads about 0.055
+  w = fig(0, 0); for (const [hip, kn, an, dz] of [[23, 25, 27, -0.15], [24, 26, 28, 0.15]]) { w[hip] = P(dz, 0); w[kn] = P(dz * 1.5, 0.45); w[an] = P(dz * 2, 0.9); }
+  assert.ok(Math.abs(measure(w, img(w), 16 / 9).kneeIn) < 0.005);
+  w[25] = P(-0.175, 0.45); w[26] = P(0.175, 0.45);
+  assert.ok(Math.abs(measure(w, img(w), 16 / 9).kneeIn - 0.05 / Math.hypot(0.15, 0.9)) < 0.005, 'kneeIn ' + measure(w, img(w), 16 / 9).kneeIn);
   w = fig(0.45, 0.45); m = measure(w, img(w), 16 / 9);
   assert.ok(Math.abs(m.thigh) < 2 && Math.abs(m.knee - 90) < 2, `thigh ${m.thigh} knee ${m.knee}`);
 }
@@ -200,6 +211,22 @@ function* chain(...gens) { for (const g of gens) yield* g; }
   assert.equal(choosePose([waving, { ...lifter, m: { ...base, lean: 88, wristsUp: 0 } }], def, { x: 0.6, y: 0.7 }, true), 1, 'mid-set it does not switch');
   assert.equal(choosePose([], def, null, false), -1);
 }
+// 19. Specific form calls: elbows flaring, uneven arms, leg drive on the press; knees drifting in on the squat.
+{
+  const rack = { ...base, view: 'front', elbow: 60, wristsUp: 1, wristDrop: 0.05, foreOut: 6, armGap: 3, kneeIn: 0.02 };
+  const press = (x = {}, topX = {}) => repTrace('elbow', 60, 170, 0.9, 1.1, (k) => ({ view: 'front', wristsUp: 1, wristDrop: 0.05 - 0.5 * k, foreOut: 6, armGap: 3, kneeIn: 0.02, ...x, ...(k > 0.9 ? topX : {}) }));
+  const P3 = (x, t) => [press(x, t), press(x, t), press(x, t)];
+  const fixesOf = (frames, id = 'ohp', startPose = rack) => of(run(id, chain(hold(startPose, 1), ...frames, hold(startPose, 12))).ev, 'setEnd')[0].set.fixes;
+  assert.deepEqual(Object.keys(fixesOf(P3())), [], 'a clean press gets no correction');
+  assert.ok(fixesOf(P3({ foreOut: 30 }), 'ohp', { ...rack, foreOut: 30 }).flare, 'elbows wider than the hands at the bottom');
+  assert.ok(fixesOf(P3({}, { armGap: 26 })).even, 'one arm finishing lower');
+  assert.ok(fixesOf(P3({ knee: 140 })).legs, 'knees bending to drive the bar');
+  // squat seen from the front: a wide stance alone is fine; knees moving inward during the rep is flagged
+  const stand = { ...base, view: 'front', kneeRatio: 0.72, kneeIn: 0.03 };
+  const squat = (drift) => repTrace('knee', 172, 70, 1.4, 1.0, (k) => ({ view: 'front', kneeRatio: 0.72, thigh: 85 - 85 * k, kneeIn: 0.03 + drift * k }));
+  assert.equal(fixesOf([squat(0.01), squat(0.01), squat(0.01)], 'squat', stand).knees, undefined);
+  assert.equal(fixesOf([squat(0.11), squat(0.11), squat(0.01)], 'squat', stand).knees.n, 2);
+}
 // 11. Equipment: lifts are offered only when the equipment allows, and built splits respect that.
 {
   const all = Object.keys(EQUIP);
@@ -230,12 +257,27 @@ function* chain(...gens) { for (const g of gens) yield* g; }
 // 17. Real sessions: every recording in sessions/ must still replay to the sets its lifter did.
 {
   const dir = fileURLToPath(new URL('../sessions/', import.meta.url));
-  for (const f of fs.existsSync(dir) ? fs.readdirSync(dir).filter((x) => x.endsWith('.json')) : []) {
-    const rec = JSON.parse(fs.readFileSync(dir + f, 'utf8')), got = {};
+  for (const f of fs.existsSync(dir) ? fs.readdirSync(dir).filter((x) => x.endsWith('.json.gz')) : []) {
+    const rec = JSON.parse(zlib.gunzipSync(fs.readFileSync(dir + f)).toString('utf8')), got = {};
     for (const seg of replay(rec, globalThis.GymEngine)) (got[seg.id] = got[seg.id] || []).push(seg.replayed.sets);
     assert.deepEqual(got, rec.expect, f);
     console.log('session', f, 'replays to', JSON.stringify(got));
   }
+}
+// 18. Coaching after a set that reached the limit, and weights limited to the plates owned.
+{
+  const { barLoads } = globalThis.GymEngine, loads = barLoads(45, [10, 15, 20, 25, 35, 45]).map((x) => x.total);
+  assert.deepEqual(loads.slice(0, 6), [45, 65, 75, 85, 95, 105]);
+  const mk = (reps, x = {}) => ({ reps, slow: null, fixes: {}, missed: 0, short: 0, lastShort: false, ...x });
+  const lim = ruleCoach(mk(7, { lastShort: true, short: 1, fixes: { short: { text: 'Shorter than your other reps', n: 1 } } }), { lo: 6, hi: 10 }, 75, { up: 85, down: 65 });
+  assert.match(lim.say, /^7 reps\. Your last one came up short/); assert.match(lim.say, /inside your range, so keep the weight/); assert.equal(lim.nextWeight, 75); assert.equal(lim.failed, true);
+  assert.doesNotMatch(lim.say, /One thing to work on/);
+  const under = ruleCoach(mk(4, { missed: 1 }), { lo: 6, hi: 10 }, 75, { up: 85, down: 65 });
+  assert.match(under.say, /ran out of strength/); assert.match(under.say, /Drop to 65 for the next set/); assert.equal(under.nextWeight, 65);
+  assert.match(ruleCoach(mk(10), { lo: 6, hi: 10 }, 75, { up: 85, down: 65, effort: 'easy' }).say, /Go up to 85 now/);
+  assert.match(ruleCoach(mk(8), { lo: 6, hi: 10 }, 75, { up: 85, down: 65, effort: 'easy' }).say, /^8 reps, in range, with more in you/);
+  assert.match(ruleCoach(mk(8), { lo: 6, hi: 10 }, 75, { up: 85, down: 65, effort: 'none' }).say, /at your limit and inside your range/);
+  assert.equal(ruleCoach(mk(8), { lo: 6, hi: 10 }, 0, {}).nextWeight, null);
 }
 for (const [id, d] of Object.entries(EX)) if (!d.manual) assert.ok(d.hi > d.lo && d.joints.length && d.maxRep, id);
 console.log('engine: all checks passed');

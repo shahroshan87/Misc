@@ -69,6 +69,9 @@ button { cursor: pointer; }
 .lbl { font: 600 16px/1.2 var(--body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .hint { align-self: flex-end; color: var(--fg); font-size: 13px; background: rgb(18 22 28 / 0.7); border-radius: 999px; padding: 6px 12px; text-align: center; }
 .hint:empty { display: none; }
+.wtotal { font-size: 13px; color: var(--muted); margin-top: 4px; } .wtotal:empty { display: none; }
+.hudacts { margin-top: 10px; gap: 6px; }
+.effort { justify-content: center; font-size: 14px; color: var(--muted); } .effort button[aria-pressed="true"] { border-color: var(--track); color: var(--track); }
 .hint { font-size: clamp(14px, 1.6vw, 20px); padding: 8px 16px; }
 .hint.go { background: var(--good); color: #06200d; font-weight: 600; }
 #repNum.maybe { opacity: 0.45; }
@@ -206,6 +209,8 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
             <button class="step" id="wUp" aria-label="More weight">+</button>
             <span class="src" id="wSrc"></span>
           </div>
+          <div class="wtotal" id="wTotal"></div>
+          <div class="row hudacts"><button class="btn small" id="logHand">Log a set by hand</button><button class="btn small" id="prevLift" aria-label="Previous lift">‹</button><button class="btn small" id="nextLift">Next lift ›</button></div>
         </div>
         <div class="hud-right">
           <div class="row"><span class="chip idle" id="stateChip">Idle</span><button class="btn small" id="flagBtn">Flag a problem</button><button class="btn small" id="panelToggle">Hide panel</button></div>
@@ -214,7 +219,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
       </div>
       <div class="hud-mid">
         <div class="alert" id="alert" hidden></div>
-        <div class="restcard" id="restCard" hidden><p class="coachline" id="coachLine"></p><p class="nextline" id="nextLine"></p><div class="row" style="justify-content:center"><button class="btn small" id="redoBtn">That count was wrong, redo the set</button></div></div>
+        <div class="restcard" id="restCard" hidden><p class="coachline" id="coachLine"></p><p class="nextline" id="nextLine"></p><div class="row effort" id="effortRow"><span>How many more could you have done?</span><button class="btn small" data-e="easy">3 or more</button><button class="btn small" data-e="some">1 or 2</button><button class="btn small" data-e="none">None</button></div><div class="row" style="justify-content:center"><button class="btn small" id="repLess">− rep</button><button class="btn small" id="repMore">+ rep</button><button class="btn small" id="redoBtn">Redo the set</button></div></div>
         <div class="cue" id="cue" hidden></div>
       </div>
       <div class="hud-bottom">
@@ -275,7 +280,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   // avg: both sides averaged when both are clearly visible, else the visible one. min: the more bent side (one-sided lifts).
   function pair(p, idsL, idsR, fL, fR) {
     const a = vis(p, idsL), b = vis(p, idsR), l = fL(), r = fR();
-    return { avg: a > 0.65 && b > 0.65 ? (l + r) / 2 : (a >= b ? l : r), min: a > 0.5 && b > 0.5 ? Math.min(l, r) : (a >= b ? l : r) };
+    return { avg: a > 0.65 && b > 0.65 ? (l + r) / 2 : (a >= b ? l : r), min: a > 0.5 && b > 0.5 ? Math.min(l, r) : (a >= b ? l : r), gap: a > 0.65 && b > 0.65 ? Math.abs(l - r) : null };
   }
   const sides = (p, idsL, idsR, fL, fR) => pair(p, idsL, idsR, fL, fR).avg;
 
@@ -308,6 +313,26 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     const r = sw / tl;
     m.view = r > 0.55 ? 'front' : r < 0.3 ? 'side' : 'angled';
     const best = (a, b) => Math.max(vis(p, [a]), vis(p, [b]));
+    // armGap: how unevenly the two arms are bent. foreOut: seen from the front, how far the forearms lean from straight up
+    // (degrees; positive = elbows wider than hands). kneeIn: how far each knee sits inside the line from hip to ankle, as a
+    // share of leg length; what matters is how much it grows during a rep, not its standing value.
+    m.armGap = eb.gap;
+    const mx = (w[J.lSh].x + w[J.rSh].x) / 2, out = (a, b) => Math.abs(w[a].x - mx) - Math.abs(w[b].x - mx);
+    const fore = (el, wr) => deg(Math.atan2(out(el, wr), Math.abs(w[el].y - w[wr].y) || 1e-6));
+    m.foreOut = vis(p, [J.lEl, J.lWr, J.rEl, J.rWr]) > 0.6 ? (fore(J.lEl, J.lWr) + fore(J.rEl, J.rWr)) / 2 : null;
+    const hx = (w[J.lHip].x + w[J.rHip].x) / 2;
+    const kIn = (hip, kn, an) => {
+      const L = Math.hypot(w[an].x - w[hip].x, w[an].y - w[hip].y) || 1e-6, k = clamp((w[kn].y - w[hip].y) / ((w[an].y - w[hip].y) || 1e-6), 0, 1);
+      const lineX = w[hip].x + k * (w[an].x - w[hip].x);      // where the knee would be on a straight hip-to-ankle line
+      return (Math.abs(lineX - hx) - Math.abs(w[kn].x - hx)) / L;
+    };
+    m.kneeIn = vis(p, [J.lHip, J.lKn, J.lAn, J.rHip, J.rKn, J.rAn]) > 0.6 ? (kIn(J.lHip, J.lKn, J.lAn) + kIn(J.rHip, J.rKn, J.rAn)) / 2 : null;
+    // Which edge of the picture the body runs off.
+    const body = [J.lSh, J.rSh, J.lEl, J.rEl, J.lWr, J.rWr, J.lHip, J.rHip, J.lKn, J.rKn, J.lAn, J.rAn];
+    m.cutTop = body.some((i) => p[i].y < 0.02) ? 1 : 0; m.cutBottom = body.some((i) => p[i].y > 0.98) ? 1 : 0; m.cutSide = body.some((i) => p[i].x < 0.02 || p[i].x > 0.98) ? 1 : 0;
+    // reach: where the hands will be at full stretch overhead, as a height in the picture (0 = top edge, below 0 = out of shot).
+    const armTop = (sh, el, wr) => p[sh].y - (Math.hypot((p[sh].x - p[el].x) * aspect, p[sh].y - p[el].y) + Math.hypot((p[el].x - p[wr].x) * aspect, p[el].y - p[wr].y));
+    m.reach = sides(p, [J.lSh, J.lEl, J.lWr], [J.rSh, J.rEl, J.rWr], () => armTop(J.lSh, J.lEl, J.lWr), () => armTop(J.rSh, J.rEl, J.rWr));
     // Signal gesture: one hand held above the head while the other hangs down.
     const upW = (wr) => vis(p, [wr]) > 0.6 && w[wr].y < w[0].y - 0.05, downW = (wr, sh) => w[wr].y > w[sh].y + 0.2;
     m.raise = (upW(J.lWr) && downW(J.rWr, J.rSh)) || (upW(J.rWr) && downW(J.lWr, J.lSh)) ? 1 : 0;
@@ -327,35 +352,35 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   const hang = (m) => m.elbow > 140 && m.wristDrop > 0.3, tall = (m) => m.lean < 30 && m.wristDrop > 0.3;
   const SIDE = ['side', 'angled'], FRONT = ['front', 'angled'];
   const T = {
-    squat:    { signal: 'knee', rest: 'high', hi: 150, lo: 115, first: 'ecc', joints: ['hip', 'kn', 'an'], gap: 10, maxRep: 10, view: 'Side-on or 45°', views: SIDE, form: 'squat',
+    squat:    { signal: 'knee', rest: 'high', hi: 150, lo: 125, first: 'ecc', joints: ['hip', 'kn', 'an'], gap: 10, maxRep: 10, view: 'Side-on or 45°', views: SIDE, form: 'squat',
                 start: (m) => m.knee > 150 && m.lean < 40 && m.handsHigh === 1, tip: 'Stand tall with your hands on the bar' },
-    oneleg:   { signal: 'kneeMin', rest: 'high', hi: 150, lo: 115, first: 'ecc', joints: ['hip', 'kn', 'an'], gap: 10, maxRep: 10, view: 'Side-on', views: SIDE,
+    oneleg:   { signal: 'kneeMin', rest: 'high', hi: 150, lo: 125, first: 'ecc', joints: ['hip', 'kn', 'an'], gap: 10, maxRep: 10, view: 'Side-on', views: SIDE,
                 start: (m) => m.lean < 40, tip: 'Stand tall in your stance' },
-    deadlift: { signal: 'hip', rest: 'high', hi: 155, lo: 120, first: 'ecc', joints: ['sh', 'hip', 'kn'], gap: 14, maxRep: 30, view: 'Side-on', views: SIDE, form: 'deadlift',
+    deadlift: { signal: 'hip', rest: 'high', hi: 150, lo: 130, first: 'ecc', joints: ['sh', 'hip', 'kn'], gap: 14, maxRep: 30, view: 'Side-on', views: SIDE, form: 'deadlift',
                 start: hang, gate: hang, tip: 'Stand over the bar with your arms straight' },
-    hinge:    { signal: 'hip', rest: 'high', hi: 155, lo: 125, first: 'ecc', joints: ['sh', 'hip', 'kn'], gap: 10, maxRep: 12, view: 'Side-on', views: SIDE, form: 'rdl',
+    hinge:    { signal: 'hip', rest: 'high', hi: 150, lo: 135, first: 'ecc', joints: ['sh', 'hip', 'kn'], gap: 10, maxRep: 12, view: 'Side-on', views: SIDE, form: 'rdl',
                 start: hang, gate: hang, tip: 'Stand tall holding the weight with straight arms' },
-    press:    { signal: 'elbow', rest: 'low', hi: 150, lo: 100, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Front or 45°', views: FRONT, gate: up, form: 'ohp',
+    press:    { signal: 'elbow', rest: 'low', hi: 125, lo: 100, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Front or 45°', views: FRONT, gate: up, form: 'ohp', headroom: true,
                 start: (m) => m.handsHigh === 1 && m.lean < 35 && m.wristDrop < 0.25, tip: 'Bring the weight to your shoulders' },
-    bench:    { signal: 'elbow', rest: 'high', hi: 150, lo: 105, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Side-on, camera at bench height', form: 'tempo', beta: true, stay: (m) => m.lean > 35 && m.seen.hip >= 0.5,
+    bench:    { signal: 'elbow', rest: 'high', hi: 140, lo: 115, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Side-on, camera at bench height', form: 'tempo', beta: true, stay: (m) => m.lean > 35 && m.seen.hip >= 0.5,
                 start: (m) => m.wristsUp === 1 && m.lean > 35, tip: 'Lie back and hold the weight at arm\'s length' },
-    pushup:   { signal: 'elbow', rest: 'high', hi: 150, lo: 110, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on, camera low', form: 'pushup', stay: (m) => m.lean > 40,
+    pushup:   { signal: 'elbow', rest: 'high', hi: 140, lo: 115, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on, camera low', form: 'pushup', stay: (m) => m.lean > 40,
                 start: (m) => m.lean > 45, tip: 'Get into a straight-arm plank' },
-    dip:      { signal: 'elbow', rest: 'high', hi: 150, lo: 105, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on', form: 'dip',
+    dip:      { signal: 'elbow', rest: 'high', hi: 140, lo: 115, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on', form: 'dip',
                 start: (m) => m.lean < 40 && m.wristDrop > 0.3, tip: 'Support yourself on straight arms' },
-    row:      { signal: 'elbow', rest: 'high', hi: 145, lo: 105, first: 'con', joints: ['sh', 'el', 'wr', 'hip'], gap: 8, maxRep: 8, view: 'Side-on', views: SIDE, form: 'row', stay: (m) => m.lean > 20,
+    row:      { signal: 'elbow', rest: 'high', hi: 135, lo: 110, first: 'con', joints: ['sh', 'el', 'wr', 'hip'], gap: 8, maxRep: 8, view: 'Side-on', views: SIDE, form: 'row', stay: (m) => m.lean > 20,
                 start: (m) => m.lean > 25 && m.wristDrop > 0.25, tip: 'Hinge forward and let the weight hang at arm\'s length' },
-    pull:     { signal: 'elbow', rest: 'high', hi: 145, lo: 95, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Front or behind', views: FRONT, gate: up, form: 'pullup', stay: up,
+    pull:     { signal: 'elbow', rest: 'high', hi: 135, lo: 105, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 10, view: 'Front or behind', views: FRONT, gate: up, form: 'pullup', stay: up,
                 start: up, tip: 'Hang from the bar with straight arms' },
-    curl:     { signal: 'elbow', rest: 'high', hi: 140, lo: 75, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Front or side-on', form: 'curl',
+    curl:     { signal: 'elbow', rest: 'high', hi: 130, lo: 90, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Front or side-on', form: 'curl',
                 start: tall, gate: (m) => m.handsHigh === 1, tip: 'Stand tall with your arms straight down' },
-    raise:    { signal: 'shoulder', rest: 'low', hi: 65, lo: 30, first: 'con', joints: ['sh', 'el', 'hip'], gap: 8, maxRep: 8, view: 'Front', views: FRONT, form: 'lateral',
+    raise:    { signal: 'shoulder', rest: 'low', hi: 60, lo: 30, first: 'con', joints: ['sh', 'el', 'hip'], gap: 8, maxRep: 8, view: 'Front', views: FRONT, form: 'lateral',
                 start: tall, tip: 'Stand tall with your arms at your sides' },
-    overhead: { signal: 'elbow', rest: 'high', hi: 150, lo: 100, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on', form: 'tempo',
+    overhead: { signal: 'elbow', rest: 'high', hi: 140, lo: 105, first: 'ecc', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on', form: 'tempo',
                 start: up, tip: 'Hold the weight overhead with straight arms' },
-    pushdown: { signal: 'elbow', rest: 'low', hi: 150, lo: 100, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on', gate: down,
+    pushdown: { signal: 'elbow', rest: 'low', hi: 135, lo: 100, first: 'con', joints: ['sh', 'el', 'wr'], gap: 8, maxRep: 8, view: 'Side-on', gate: down,
                 start: (m) => m.lean < 40, tip: 'Start with your elbows bent at your sides' },
-    legraise: { signal: 'hip', rest: 'high', hi: 150, lo: 115, first: 'con', joints: ['sh', 'hip', 'kn'], gap: 8, maxRep: 8, view: 'Side-on', gate: up,
+    legraise: { signal: 'hip', rest: 'high', hi: 150, lo: 125, first: 'con', joints: ['sh', 'hip', 'kn'], gap: 8, maxRep: 8, view: 'Side-on', gate: up,
                 start: up, tip: 'Hang from the bar' },
     manual:   { manual: true, gap: 0 },
   };
@@ -375,7 +400,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     rdl:        X('Romanian deadlift', 'hinge', 'hinge', [['barbell']]),
     deadlift:   X('Deadlift', 'hinge', 'deadlift', [['barbell']]),
     dbrdl:      X('Dumbbell Romanian deadlift', 'hinge', 'hinge', [['dumbbells'], ['kettlebell']]),
-    kbswing:    X('Kettlebell swing', 'hinge', 'hinge', [['kettlebell']], { lo: 130, gap: 6, maxRep: 5, form: null, start: null, gate: null, tip: 'Stand tall holding the kettlebell' }),
+    kbswing:    X('Kettlebell swing', 'hinge', 'hinge', [['kettlebell']], { lo: 135, gap: 6, maxRep: 5, form: null, start: null, gate: null, tip: 'Stand tall holding the kettlebell' }),
     bandgm:     X('Band good morning', 'hinge', 'hinge', [['bands']], { start: null, gate: null, tip: 'Stand tall with the band across your shoulders' }),
     slrdl:      X('Single-leg Romanian deadlift', 'hinge', 'hinge', undefined, { signal: 'hipMin', form: null, start: null, gate: null, tip: 'Stand tall on one leg' }),
     bench:      X('Bench press', 'hpush', 'bench', [['barbell', 'bench']]),
@@ -486,7 +511,8 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
       if (d > 25) out.push(fix('depth', 'Sit deeper', 'Try to sit deeper on the next one, until your thighs are level with the floor.'));
       else if (d > 10) out.push(fix('depth', 'A touch deeper', 'Nearly there. Just a touch deeper.'));
       if (view !== 'front' && r.agg.lean.max > 60) out.push(fix('chest', 'Keep your chest up', 'Keep your chest up as you come out of the bottom.'));
-      if (view === 'front' && r.agg.kneeRatio && r.agg.kneeRatio.min < 0.75) out.push(fix('knees', 'Push your knees out', 'Push your knees out over your toes.'));
+      // Knees drifting inward during the rep, measured against where they sat while standing. Needs a view from the front.
+      if (view !== 'side' && r.agg.kneeIn && r.start.kneeIn != null && r.agg.kneeIn.max - r.start.kneeIn > 0.07) out.push(fix('knees', 'Knees drifting inward', 'Your knees drifted inward on that one. Push them out so they stay over your toes.'));
       out.push(...slowDown(r));
       return out;
     },
@@ -500,8 +526,13 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
       return out;
     },
     ohp(r, view) {
-      const out = [];
-      if (r.agg.elbow.max < 155) out.push(fix('lockout', 'Press all the way up', 'Press all the way up until your arms are straight.'));
+      const out = [], s0 = r.start, top = r.at;
+      if (view !== 'side' && s0.foreOut != null) {
+        if (s0.foreOut > 20) out.push(fix('flare', 'Elbows in, under the bar', 'Your elbows are flaring out wider than your hands. Bring them in under the bar so your forearms point straight up.'));
+        else if (s0.foreOut < -20) out.push(fix('grip', 'Grip a little narrower', 'Your hands are well outside your elbows. Take a slightly narrower grip so your forearms point straight up.'));
+      }
+      if (view !== 'side' && top.armGap != null && top.armGap > 18) out.push(fix('even', 'Press both arms evenly', 'One arm is finishing lower than the other. Drive both hands up together.'));
+      if (r.kneeRest && s0.seen && s0.seen.kn >= 0.6 && r.agg.knee && r.kneeRest - r.agg.knee.min > 20) out.push(fix('legs', 'Keep your legs straight', 'You are bending your knees to help the bar up. Lock your legs and let your shoulders do the work.'));
       if (view !== 'front' && r.agg.lean.max - r.agg.lean.min > 15) out.push(fix('lean', 'Stay upright', 'Try not to lean back. Squeeze your glutes and keep your ribs down.'));
       return out;
     },
@@ -539,15 +570,16 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     },
   };
 
-  const AGG_KEYS = ['knee', 'hip', 'elbow', 'shoulder', 'thigh', 'lean', 'bodyLine', 'kneeRatio'];
+  const median = (a) => { const b = [...a].sort((x, y) => x - y), k = b.length >> 1; return b.length % 2 ? b[k] : (b[k - 1] + b[k]) / 2; };
+  const AGG_KEYS = ['knee', 'hip', 'elbow', 'shoulder', 'thigh', 'lean', 'bodyLine', 'kneeRatio', 'kneeIn'];
 
   class Tracker {
     constructor(exId) {
       this.exId = exId; this.def = EX[exId];
       this.state = 'unknown'; this.reps = []; this.sm = null; this.lastT = null;
       this.lost = null; this.view = 'angled'; this.tStart = null; this.manualStart = null;
-      this.hist = []; this.settle = null;
-      this.ready = false; this.poseSince = null; this.posedAt = -1e9; this.readyAt = -1e9; this.unposed = null; this.pending = null; this.valid = false; this.away = null;
+      this.hist = []; this.settle = null; this.raw3 = [];
+      this.ready = false; this.poseSince = null; this.posedAt = -1e9; this.readyAt = -1e9; this.unposed = null; this.pending = null; this.valid = false; this.away = null; this.misses = 0; this.extGate = false;
     }
     get active() { return this.reps.length > 0 || this.manualStart != null; }
     get moving() { return this.state === 'out' || this.state === 'far'; }
@@ -558,14 +590,17 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
       if (!m || missing(d, m).length) {
         if (this.lost == null) this.lost = t;
         if (t - this.lost > 3) {
-          this.state = 'unknown'; this.sm = null; this.hist = []; this.settle = null; this.poseSince = null;
+          this.state = 'unknown'; this.sm = null; this.hist = []; this.raw3 = []; this.settle = null; this.poseSince = null;
           if (this.pending) { this.pending = null; ev.push({ type: 'cancel' }); }
           if (this.reps.length) ev.push(this._end());
         }
         this.lastT = t; if (t - this.lost > 0.4) this.ready = false; return ev;      // a dropped frame or two does not undo "in position"
       }
       this.lost = null; this.view = m.view;
-      const raw = m[d.signal], dt = this.lastT == null ? 0 : Math.max(0, t - this.lastT);
+      // Median of the last three readings first: the pose model throws single-frame spikes that are not movement.
+      const r3 = this.raw3; r3.push(m[d.signal]); if (r3.length > 3) r3.shift();
+      const raw = r3.length < 3 ? r3[r3.length - 1] : r3[0] + r3[1] + r3[2] - Math.min(r3[0], r3[1], r3[2]) - Math.max(r3[0], r3[1], r3[2]);
+      const dt = this.lastT == null ? 0 : Math.max(0, t - this.lastT);
       this.sm = this.sm == null ? raw : this.sm + (raw - this.sm) * (1 - Math.exp(-dt / 0.1));
       this.lastT = t;
       const s = this.sm, high = d.rest === 'high', h = this.hist;
@@ -574,11 +609,16 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
       // Degrees per second toward the far zone, over the last two frames.
       const toward = (i) => (i >= 2 ? (h[i].s - h[i - 2].s) / ((h[i].t - h[i - 2].t) || 1e-6) * (high ? -1 : 1) : 0);
 
-      // Ready means: in the lift's starting position, and held there for a moment.
+      // Ready means: in the lift's starting position, held there for a moment...
       const posed = !d.start || d.start(m);
       if (posed) { if (this.poseSince == null) this.poseSince = t; this.posedAt = t; } else this.poseSince = null;
-      this.ready = this.state === 'rest' && inA && posed && t - this.poseSince >= 0.6;
+      // ...and still: reaching for the bar or unracking it is movement, not a held start.
+      let lo6 = s, hi6 = s; for (let i = h.length - 1; i >= 0 && t - h[i].t <= 0.6; i--) { if (h[i].s < lo6) lo6 = h[i].s; if (h[i].s > hi6) hi6 = h[i].s; }
+      const still = hi6 - lo6 <= 15 && h.length > 2 && t - h[0].t >= 0.55;
+      this.ready = this.state === 'rest' && inA && posed && t - this.poseSince >= 0.6 && still;
       if (this.ready) this.readyAt = t;
+      if (this.state === 'rest' && inA && still) this.stillM = m;       // the pose at rest, before the rep disturbs it
+      if (this.state === 'rest' && m.knee != null) this.restKnee = Math.max(this.restKnee || 0, m.knee);      // how straight the legs were between reps
       if (this.moving || posed) this.unposed = null; else if (this.unposed == null) this.unposed = t;
 
       // A rep is counted the moment the joint is back in the rest zone; keep timing it until the movement actually stops.
@@ -594,21 +634,28 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
         if (!inA) {
           // Time the rep from when the movement began, not from when it crossed the threshold.
           let i = h.length - 1; while (i >= 2 && toward(i) > 20) i--;
-          this.state = 'out'; this.tLeave = h[i].t; this.ext = { v: s, t }; this.agg = {}; this._acc(m);
+          this.state = 'out'; this.tLeave = h[i].t; this.ext = { v: s, t }; this.extGate = !d.gate || d.gate(m); this.agg = {}; this._acc(m);
+          this.startM = this.stillM || m; this.extM = m; this.startKnee = this.restKnee; this.restKnee = null;
           // Movements that did not begin from the starting position never count. The first rep needs the position held;
           // later reps in the same set only need to pass through it.
-          this.valid = t - this.readyAt <= 0.5 || ((this.reps.length > 0 || !!this.pending) && t - this.posedAt <= 0.5);
+          this.valid = this.tLeave - this.readyAt <= 0.5 || t - this.readyAt <= 0.9 || ((this.reps.length > 0 || !!this.pending) && t - this.posedAt <= 0.5);
         }
       } else {
         this._acc(m);
-        if (high ? s < this.ext.v : s > this.ext.v) this.ext = { v: s, t };
+        if (high ? s < this.ext.v : s > this.ext.v) { this.ext = { v: s, t }; this.extGate = !d.gate || d.gate(m); this.extM = m; }
         if (this.state === 'out' && inB && (!d.gate || d.gate(m))) this.state = 'far';
         if (inA) {
           const dur = t - this.tLeave;
           if (this.state === 'far' && dur >= 0.4 && this.valid) {
             const p1 = this.ext.t - this.tLeave, p2 = t - this.ext.t;
-            const rep = { n: 0, t, dur, ext: this.ext.v, agg: this.agg, ecc: d.first === 'ecc' ? p1 : p2, con: d.first === 'ecc' ? p2 : p1 };
+            const rep = { n: 0, t, dur, ext: this.ext.v, agg: this.agg, start: this.startM || {}, at: this.extM || {}, kneeRest: this.startKnee, ecc: d.first === 'ecc' ? p1 : p2, con: d.first === 'ecc' ? p2 : p1 };
             rep.cues = FORM[d.form] ? FORM[d.form](rep, this.view) : [];
+            // A rep that travels clearly less than the lifter's own earlier reps in this set: usually strength running out.
+            const prev = (this.pending ? [this.pending.rep] : []).concat(this.reps).map((r) => r.ext);
+            if (prev.length >= 3) {
+              const med = median(prev), mad = median(prev.map((v) => Math.abs(v - med)));
+              if ((high ? rep.ext - med : med - rep.ext) >= Math.max(9, 3 * mad)) { rep.short = true; rep.cues.push(fix('short', 'Shorter than your other reps', 'That one came up short of your other reps.')); }
+            }
             const begin = (r, tLeave) => { this.tStart = r.dur < 8 ? tLeave : r.t - 4; ev.push({ type: 'setStart', t: this.tStart }); };
             if (!this.reps.length && !this.pending) {
               // One rep alone is not a set yet. It is held back until a second one follows.
@@ -618,6 +665,10 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
               rep.n = this.reps.length + 1; this.reps.push(rep); ev.push({ type: 'rep', rep });
             }
             this.settle = { rep, t0: t };
+          } else if (this.state === 'out' && this.valid && this.extGate && this.reps.length >= 2 && dur >= 0.3) {
+            // Started a rep, got part of the way, came back: a missed rep.
+            const edge = high ? d.hi : d.lo, med = median(this.reps.map((r) => r.ext));
+            if (Math.abs(this.ext.v - edge) >= 0.2 * Math.abs(med - edge)) { this.misses++; ev.push({ type: 'miss' }); }
           }
           this.state = 'rest';
         } else if (t - this.tLeave > d.maxRep) { this.state = 'unknown'; }
@@ -658,29 +709,61 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
       let slow = null;
       if (n >= 3) { const base = Math.min(reps[0].con, reps[1].con); if (base > 0.15) slow = reps[n - 1].con / base - 1; }
       const set = { reps: n, tStart, tEnd, dur: tEnd - tStart, ecc: avg((r) => r.ecc), con: avg((r) => r.con), slow, fixes, tracked: n > 0,
+        missed: this.misses, short: reps.filter((r) => r.short).length, lastShort: n > 0 && !!reps[n - 1].short,
         perRep: reps.map((r) => ({ dur: +r.dur.toFixed(2), ecc: +r.ecc.toFixed(2), con: +r.con.toFixed(2), ext: Math.round(r.ext), cues: r.cues.map((c) => c.text) })) };
-      this.reps = []; this.tStart = null; this.manualStart = null; this.away = null;
+      this.reps = []; this.tStart = null; this.manualStart = null; this.away = null; this.misses = 0;
       return { type: 'setEnd', t: tEnd, set };
     }
   }
 
-  /* Plain-rules coach used when no Claude key is set. target: {lo, hi}; step: smallest weight jump. */
-  function ruleCoach(set, target, weight, step) {
-    const parts = [], reps = set.reps;
+  /* Plain-rules coach used when no Claude key is set. Sources are in reports/Muscle gain methods by goal.md.
+     target: {lo, hi}. o.up / o.down: the next weights the lifter can actually load. o.effort: what the lifter said
+     after the set ('easy' = 3 or more reps left, 'some' = 1 or 2, 'none'); when absent it is inferred from a missed or
+     short last rep. The rules:
+     - Stay at a weight until the top of the rep range, then go up (adding reps or load both work: Plotkin 2022).
+     - Stopping 1 to 2 reps short builds the same muscle as going to failure, with less fatigue (Refalo 2024), so
+       hitting the limit inside the range is fine now and then but is not the aim.
+     - Falling under the range means the load is too heavy for this set: go down. Holding reps across sets with
+       short rests took 10 to 15 percent less load per set in trials (Willardson 2010). */
+  function ruleCoach(set, target, weight, o = {}) {
+    if (typeof o === 'number') o = { up: weight + o, down: Math.round(weight * 0.9 / o) * o };
+    const parts = [], reps = set.reps, failed = set.missed > 0 || set.lastShort || o.effort === 'none', easy = o.effort === 'easy';
+    const up = weight && o.up > weight ? o.up : null, down = weight && o.down < weight ? o.down : null;
     let next = weight || null;
+    if (set.missed > 0) parts.push(`${reps} reps, and you ran out of strength on the next one.`);
+    else if (set.lastShort) parts.push(`${reps} reps. Your last one came up short of the others, which is what your limit looks like.`);
+    // lead: the opening words, unless a sentence about a missed or short rep has already opened the reply.
+    const lead = parts.length ? null : `${reps} reps`, sent = (a, b) => parts.push(lead ? `${lead}, ${a}` : b);
     if (target) {
-      if (reps >= target.hi) parts.push(`${reps} reps, top of your ${target.lo} to ${target.hi} range.` + (weight ? ` Go up to ${weight + step} next session.` : ''));
-      else if (reps < target.lo) { if (weight) next = Math.round(weight * 0.9 / step) * step; parts.push(`${reps} reps, under your target of ${target.lo}.` + (weight ? ` Drop to ${next} for the next set.` : '')); }
-      else parts.push(`${reps} reps, in range. Same weight next set.`);
-    } else parts.push(`${reps} reps.`);
-    const top = Object.values(set.fixes).sort((a, b) => b.n - a.n)[0];
+      if (reps < target.lo) {
+        if (failed || !o.effort) {
+          sent(`under your target of ${target.lo}.`, `That is under your target of ${target.lo}.`);
+          if (down) { next = down; parts.push(`Drop to ${down} for the next set.`); } else parts.push('Take a longer rest before the next set.');
+        } else sent(`under your target of ${target.lo}, with reps left. Same weight, and push closer to your limit next set.`, `That is under your target of ${target.lo}. Same weight, and push closer to your limit next set.`);
+      } else if (reps >= target.hi) {
+        if (easy && up) { next = up; sent(`top of your ${target.lo} to ${target.hi} range with plenty left. Go up to ${up} now.`, `That is the top of your range. Go up to ${up} now.`); }
+        else { sent(`top of your ${target.lo} to ${target.hi} range.`, 'That is the top of your range.'); if (up) parts.push(`Go up to ${up} next session.`); }
+      } else if (failed) {
+        sent('at your limit and inside your range, so keep the weight.', 'That is inside your range, so keep the weight.');
+        parts.push('Expect a rep or two fewer next set. Stopping one short of your limit builds the same muscle with less fatigue.');
+      } else if (easy) sent('in range, with more in you. Same weight, and take the next set to within a rep or two of your limit.', 'That is in range. Same weight, and push the next set closer to your limit.');
+      else sent('in range. Same weight next set.', 'That is in range. Same weight next set.');
+    } else if (lead) parts.push(`${reps} reps.`);
+    const top = Object.entries(set.fixes).filter(([id]) => id !== 'short').map(([, f]) => f).sort((a, b) => b.n - a.n)[0];
     if (top) parts.push(`One thing to work on: ${top.text.toLowerCase()}. I saw it on ${top.n} of ${reps} reps.`);
-    else if (reps >= 2) parts.push('Every rep looked clean. Nice work.');
-    if (set.slow != null) {
+    else if (reps >= 2 && !set.short && !set.missed && set.tracked !== false) parts.push('Every rep looked clean. Nice work.');
+    if (!o.effort && !failed && set.slow != null) {
       if (set.slow >= 0.5) parts.push(`Your last rep was ${Math.round(set.slow * 100)} percent slower than your first, which usually means you were close to your limit.`);
-      else if (set.slow < 0.15 && (!target || reps >= target.lo)) parts.push('Rep speed barely dropped, so you had more in you.');
+      else if (set.slow < 0.15 && reps >= (target ? target.lo : 0)) parts.push('Your rep speed barely dropped, so you may have had more in you.');
     }
-    return { say: parts.join(' '), nextWeight: next };
+    return { say: parts.join(' '), nextWeight: next, failed };
+  }
+
+  /* Weights a barbell can be loaded to: the bar plus any combination of the plates owned, one pair of each. */
+  function barLoads(bar, plates) {
+    let sums = new Set([0]);
+    for (const p of plates) for (const v of [...sums]) sums.add(Math.round((v + p) * 100) / 100);
+    return [...sums].sort((a, b) => a - b).map((side) => ({ side, total: bar + 2 * side }));
   }
 
   /* Hard sets per muscle group over the last 7 days. A press or pull counts half for the arms and shoulders it also works. */
@@ -696,8 +779,8 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   }
 
   /* Session recordings: one compact row per camera frame, so a real session can be replayed through the tracker later. */
-  const FRAME_FIELDS = ['knee', 'kneeMin', 'hip', 'hipMin', 'elbow', 'elbowMin', 'shoulder', 'thigh', 'lean', 'bodyLine', 'kneeRatio', 'wristsUp', 'handsHigh', 'wristDrop', 'raise'];
-  const FINE = new Set(['kneeRatio', 'wristDrop']), VIEWS = ['front', 'angled', 'side'], SEEN_KEYS = ['sh', 'el', 'wr', 'hip', 'kn', 'an'];
+  const FRAME_FIELDS = ['knee', 'kneeMin', 'hip', 'hipMin', 'elbow', 'elbowMin', 'shoulder', 'thigh', 'lean', 'bodyLine', 'kneeRatio', 'wristsUp', 'handsHigh', 'wristDrop', 'raise', 'reach', 'armGap', 'foreOut', 'kneeIn', 'cutTop', 'cutBottom', 'cutSide'];
+  const FINE = new Set(['kneeRatio', 'wristDrop', 'reach', 'kneeIn']), VIEWS = ['front', 'angled', 'side'], SEEN_KEYS = ['sh', 'el', 'wr', 'hip', 'kn', 'an'];
   function packFrame(t, m) {
     if (!m) return [t];
     const row = [t];
@@ -705,10 +788,10 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     row.push(VIEWS.indexOf(m.view)); for (const k of SEEN_KEYS) row.push(Math.round(m.seen[k] * 10));
     return row;
   }
-  function unpackFrame(row) {
+  function unpackFrame(row, fields = FRAME_FIELDS) {       // older recordings carry a shorter field list
     if (row.length < 2) return { t: row[0], m: null };
-    const m = {}, o = 1 + FRAME_FIELDS.length;
-    FRAME_FIELDS.forEach((k, i) => { m[k] = row[1 + i]; });
+    const m = {}, o = 1 + fields.length;
+    fields.forEach((k, i) => { m[k] = row[1 + i]; });
     m.view = VIEWS[row[o]]; m.seen = {}; SEEN_KEYS.forEach((k, i) => { m.seen[k] = row[o + 1 + i] / 10; });
     return { t: row[0], m };
   }
@@ -726,14 +809,14 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     return best;
   }
 
-  root.GymEngine = { choosePose, FRAME_FIELDS, packFrame, unpackFrame, weeklySets, J, EX, EQUIP, PATTERNS, measure, missing, Tracker, ruleCoach, ang, available, lacking, options, buildSplit };
+  root.GymEngine = { barLoads, choosePose, FRAME_FIELDS, packFrame, unpackFrame, weeklySets, J, EX, EQUIP, PATTERNS, measure, missing, Tracker, ruleCoach, ang, available, lacking, options, buildSplit };
 })(typeof window !== 'undefined' ? window : globalThis);
 </script>
 
 <script id="app">
 (function () {
   'use strict';
-  const { choosePose, packFrame, weeklySets, EX, EQUIP, PATTERNS, measure, missing, Tracker, ruleCoach, available, lacking, options, buildSplit } = window.GymEngine;
+  const { barLoads, choosePose, packFrame, weeklySets, EX, EQUIP, PATTERNS, measure, missing, Tracker, ruleCoach, available, lacking, options, buildSplit } = window.GymEngine;
   const $ = (id) => document.getElementById(id);
   const el = (tag, attrs = {}, ...kids) => {
     const n = document.createElement(tag);
@@ -752,7 +835,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   const ex = (id, sets, lo, hi, weight, rest) => ({ id, sets, lo, hi, weight, rest });
   const DEFAULTS = {
     example: true,
-    profile: { goal: 'muscle', level: 'intermediate', units: 'lb', age: '', bodyweight: '', height: '', waist: '', background: '', notes: '', body: null, equipment: ['barbell', 'rack', 'bench', 'dumbbells', 'pullupbar'], equipmentSet: false, days: 4 },
+    profile: { goal: 'muscle', level: 'intermediate', units: 'lb', age: '', bodyweight: '', height: '', waist: '', background: '', notes: '', body: null, equipment: ['barbell', 'rack', 'bench', 'dumbbells', 'pullupbar'], equipmentSet: false, days: 4, bar: 45, plates: [10, 15, 20, 25, 35, 45] },
     settings: { apiKey: '', model: 'claude-opus-5-5', voiceName: '', voice: 'all', mirror: true, accuracy: 'lite', readBar: true, camera: '' },
     plan: [
       { key: uid(), name: 'Push', exercises: [ex('ohp', 3, 6, 8, 95, 90), ex('bench', 3, 6, 10, 135, 90), ex('lateral', 3, 12, 15, 15, 60), ex('pushup', 2, 10, 20, 0, 60)] },
@@ -789,7 +872,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   }
   function selectItem(i) {
     sess.idx = i; const it = item();
-    tracker = new Tracker(it.id); wasReady = false; viewBadSince = null; viewTold = false; posPhoto = false;
+    tracker = new Tracker(it.id); wasReady = false; viewBadSince = null; told = {}; toldAny = false; posPhoto = false;
     recEvent('lift', { id: it.id, idx: i, done: it.done.length });
     const prev = it.done.length ? it.done[it.done.length - 1].weight : null;
     setWeight(prev != null ? prev : (it.weight || lastWeightFor(it.id) || 0), prev != null ? '' : (it.weight ? 'from your split' : ''));
@@ -840,14 +923,44 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     renderGate(); renderHud(); renderPane();
   }
 
-  /* ---------- Weight ---------- */
-  function setWeight(v, src) {
-    $('weight').value = v ? String(v) : ''; pendingSrc = src || ''; $('wSrc').textContent = pendingSrc;
+  /* ---------- Weight ----------
+     Barbell lifts are entered as plates on one side; Spotter adds the bar and the other side, and only moves between
+     weights the lifter's own plates can make. Everything else is a plain number. */
+  const plateMode = (id) => { const d = EX[id]; return !!(d && d.eq && d.eq[0].includes('barbell') && S.profile.equipment.includes('barbell')); };
+  const barWeight = () => { const b = parseFloat(S.profile.bar); return isFinite(b) && b > 0 ? b : 45; };
+  const loadable = () => barLoads(barWeight(), (S.profile.plates || []).filter((x) => x > 0)).map((x) => x.total);
+  function stepWeight(w, dir, id) {
+    if (!plateMode(id)) return Math.max(0, w + dir * step());
+    const L = loadable(), n = dir > 0 ? L.find((x) => x > w + 1e-6) : [...L].reverse().find((x) => x < w - 1e-6);
+    return n == null ? w : n;
   }
-  const curWeight = () => { const v = parseFloat($('weight').value); return isFinite(v) && v > 0 ? v : 0; };
-  $('wUp').onclick = () => setWeight(curWeight() + step(), '');
-  $('wDown').onclick = () => setWeight(Math.max(0, curWeight() - step()), '');
-  $('weight').oninput = () => { pendingSrc = ''; $('wSrc').textContent = ''; };
+  /* The weight to fall back to when a set comes in under target: about a tenth less, as close as the plates allow. */
+  function lighter(w, id) {
+    if (!w) return w;
+    if (!plateMode(id)) return Math.round(w * 0.9 / step()) * step();
+    const below = loadable().filter((x) => x <= w * 0.9 + 1e-6); return below.length ? below[below.length - 1] : stepWeight(w, -1, id);
+  }
+  let wTotal = 0;
+  function showWeight() {
+    const it = item(), pm = !!it && plateMode(it.id), u = S.profile.units;
+    $('unit').textContent = pm ? u + ' a side' : u;
+    $('weight').value = pm ? String(Math.max(0, (wTotal - barWeight()) / 2)) : (wTotal ? String(wTotal) : '');
+    $('wTotal').textContent = pm ? `= ${wTotal} ${u} with the ${barWeight()} ${u} bar` : '';
+    $('wSrc').textContent = pendingSrc;
+  }
+  function setWeight(v, src) {
+    const it = item(); wTotal = +v || 0;
+    if (it && plateMode(it.id) && wTotal < barWeight()) wTotal = barWeight();      // an empty bar is the lightest a barbell lift gets
+    pendingSrc = src || ''; showWeight();
+  }
+  const curWeight = () => wTotal;
+  $('wUp').onclick = () => setWeight(stepWeight(wTotal, 1, item() && item().id), '');
+  $('wDown').onclick = () => setWeight(stepWeight(wTotal, -1, item() && item().id), '');
+  $('weight').oninput = () => {
+    const v = parseFloat($('weight').value), it = item(), pm = !!it && plateMode(it.id), n = isFinite(v) && v >= 0 ? v : 0;
+    wTotal = pm ? barWeight() + 2 * n : n; pendingSrc = '';
+    $('wTotal').textContent = pm ? `= ${wTotal} ${S.profile.units} with the ${barWeight()} ${S.profile.units} bar` : ''; $('wSrc').textContent = '';
+  };
 
   /* ---------- Voice ---------- */
   let voices = [];
@@ -890,7 +1003,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   /* ---------- Session recording ----------
      Records what the camera measured and what Spotter decided, plus a few still photos, so a session can be reviewed
      and replayed later. No video. Nothing leaves the browser unless the lifter saves the file. */
-  const BUILD = '2026-11-19a';
+  const BUILD = '2026-11-21a';
   let rec = null, lastRec = null, recLoop = 0, recF = 0, recL = 0, recList = [], posPhoto = false, lastAlertRec = '';
   const r2 = (x) => (x == null || !isFinite(x) ? null : Math.round(x * 100) / 100);
   const rt = () => r2(clock() - rec.t0);
@@ -966,6 +1079,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
       else if (e.type === 'rep') onRep(e.rep, e.late);
       else if (e.type === 'maybe') { $('repNum').textContent = '1'; $('repNum').classList.add('maybe'); $('repLabel').textContent = 'keep going'; }
       else if (e.type === 'cancel') renderHud();
+      else if (e.type === 'miss') { showCue('That one did not go', 'fix'); say('That one did not go. That is your limit for this set.', true); }
       else if (e.type === 'setEnd') onSetEnd(e);
     }
   }
@@ -1002,8 +1116,9 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
       fixes: set.fixes, perRep: set.perRep, weightSrc: pendingSrc || 'entered', tracked: set.tracked, at: Date.now() };
     it.done.push(log); lastSet = { item: it, log };
     restFrom = e.t; restBeeped = false; phase = 'rest'; clearTimeout(cueTimer); $('cue').hidden = true;
-    const rule = ruleCoach(set, { lo: it.lo, hi: it.hi }, log.weight, step());
-    coachMsg = { text: set.tracked ? rule.say : 'Set logged. Enter your reps.', by: 'Built-in rules' };
+    lastSet.set = set; log.missed = set.missed || 0; log.short = set.short || 0;
+    const rule = coachRule(it, log, set);
+    coachMsg = { text: set.tracked ? rule.say : `Logged ${log.reps} reps by hand. Use the minus and plus buttons if that is not right.`, by: 'Built-in rules' };
     const doneAll = it.done.length >= it.sets, nxt = sess.items[sess.idx + 1];
     if (set.tracked) say(coachMsg.text + (doneAll ? (nxt ? ` ${EX[it.id].name} done. Next up, ${EX[nxt.id].name}.` : ' That was the last set. Finish when you are ready.') : ''));
     if (set.tracked && rule.nextWeight && rule.nextWeight !== log.weight && !doneAll) setWeight(rule.nextWeight, 'suggested');
@@ -1011,6 +1126,43 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
     persistDraft();
     if (doneAll && nxt) selectItem(sess.idx + 1); else { renderHud(); renderPane(); }
   }
+  const coachRule = (it, log, set) => ruleCoach({ ...set, reps: log.reps }, { lo: it.lo, hi: it.hi }, log.weight, { up: stepWeight(log.weight, 1, it.id), down: lighter(log.weight, it.id), effort: log.effort });
+  /* One tap after a set: how many reps were left. The lifter's own answer beats anything the camera can infer. */
+  function setEffort(e) {
+    if (!lastSet) return;
+    const { item: it, log, set } = lastSet; log.effort = e; recEvent('effort', { effort: e });
+    const rule = coachRule(it, log, set);
+    coachMsg = { text: rule.say, by: 'Built-in rules' };
+    if (rule.nextWeight && it === item() && it.done.length < it.sets) setWeight(rule.nextWeight, rule.nextWeight !== log.weight ? 'suggested' : '');
+    say(rule.say, true); persistDraft(); renderHud(); renderPane();
+  }
+  function editReps(d) {
+    if (!lastSet) return;
+    const { item: it, log, set } = lastSet; log.reps = Math.max(0, log.reps + d); recEvent('repEdit', { to: log.reps });
+    coachMsg = { text: coachRule(it, log, set).say, by: 'Built-in rules' }; persistDraft(); renderHud(); renderPane();
+  }
+  /* A set Spotter did not see: log it with a guess at the reps, which the lifter corrects with minus and plus. */
+  function logByHand() {
+    if (!sess || !tracker) return;
+    const t = clock(), it = item();
+    if (tracker.active) { recEvent('endNow', { by: 'hand' }); const e = tracker.endNow(t); if (e) onEvents([e]); return; }
+    tracker.endNow(t);
+    const reps = lastSet && lastSet.item === it ? lastSet.log.reps : it.lo;
+    lastRest = restFrom != null ? Math.max(0, t - restFrom) : null; recEvent('handLog', { id: it.id, reps });
+    onSetEnd({ type: 'setEnd', t, set: { reps, tStart: t, tEnd: t, dur: 0, ecc: null, con: null, slow: null, fixes: {}, tracked: false, missed: 0, short: 0, lastShort: false, perRep: [] } });
+  }
+  function gotoLift(d) {
+    if (!sess) return; const i = sess.idx + d; if (i < 0 || i >= sess.items.length) return;
+    const e = tracker && tracker.endNow(clock()); if (e) onEvents([e]);
+    recEvent('goto', { idx: i }); selectItem(i);
+  }
+  /* End-set controls when nothing is running: say so, and point at the way forward. */
+  function endOrExplain(by) {
+    recEvent('endNow', { by });
+    const e = tracker && tracker.endNow(clock());
+    if (e) onEvents([e]); else showCue('No set is running. Use Log a set by hand if I missed one', 'fix', 4500);
+  }
+
   /* Remove the last logged set and go back to it, including back to the previous lift if Spotter had moved on. */
   function redoLastSet() {
     if (!lastSet) return;
@@ -1048,6 +1200,7 @@ label.field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
   const COACH_SYS = `You are a strength coach talking to a lifter between sets through a speaker in their home gym.
 You get their profile, the target for this exercise, and camera-measured data for the sets done today.
 The measurements come from single-camera pose tracking: joint angles are estimates, so act on clear patterns and ignore small differences. "slow" is how much longer the last rep's lifting phase took than the fastest early rep (0.4 = 40% slower).
+"reps_left_said" is the lifter's own answer after the set (easy = 3 or more left, some = 1 or 2, none). "missed_reps" are attempts that did not complete and "short_reps" travelled clearly less than the others; both mean the limit was reached. When "can_load" is present, only suggest weights from that list.
 Give the one or two things that matter most for the next set, and a weight for it. Be specific and plain. Never diagnose injuries.
 Reply with JSON only: {"say": "<at most 2 short sentences to speak aloud>", "next_weight": <number or null>}`;
   async function claudeCoach(it, log) {
@@ -1056,7 +1209,8 @@ Reply with JSON only: {"say": "<at most 2 short sentences to speak aloud>", "nex
     try {
       const prior = S.history.filter((h) => h.items.some((x) => x.id === it.id)).slice(-1)[0];
       const data = { profile: { ...S.profile, body: S.profile.body || undefined, equipment: [...S.profile.equipment.map((e) => EQUIP[e]), ...(S.profile.equipmentOther || [])] }, exercise: EX[it.id].name, target: { sets: it.sets, reps: [it.lo, it.hi], rest_seconds: it.rest },
-        sets_today: it.done.map((d) => ({ reps: d.reps, weight: d.weight, unit: d.unit, rest_before_s: d.rest, avg_lowering_s: d.ecc, avg_lifting_s: d.con, slow: d.slow, form_flags: Object.values(d.fixes).map((f) => `${f.text} (${f.n} reps)`), per_rep: d.perRep })),
+        can_load: plateMode(it.id) ? loadable().filter((x) => x <= 405) : undefined,
+        sets_today: it.done.map((d) => ({ reps: d.reps, weight: d.weight, unit: d.unit, reps_left_said: d.effort, missed_reps: d.missed, short_reps: d.short, rest_before_s: d.rest, avg_lowering_s: d.ecc, avg_lifting_s: d.con, slow: d.slow, form_flags: Object.values(d.fixes).map((f) => `${f.text} (${f.n} reps)`), per_rep: d.perRep })),
         last_session: prior ? prior.items.find((x) => x.id === it.id).done.map((d) => `${d.weight}x${d.reps}`) : null, sets_left: Math.max(0, it.sets - it.done.length) };
       const r = await claude(COACH_SYS, JSON.stringify(data));
       if (coachMsg !== target || !r.say) return;           // a newer set has replaced this one
@@ -1221,9 +1375,12 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
     }
   }
   function setFocus(on) { document.querySelector('.app').classList.toggle('focus', on); $('panelToggle').textContent = on ? 'Show panel' : 'Hide panel'; }
+  $('logHand').onclick = logByHand; $('prevLift').onclick = () => gotoLift(-1); $('nextLift').onclick = () => gotoLift(1);
+  $('repLess').onclick = () => editReps(-1); $('repMore').onclick = () => editReps(1);
+  document.querySelectorAll('#effortRow button').forEach((b) => { b.onclick = () => setEffort(b.dataset.e); });
   $('redoBtn').onclick = redoLastSet; $('restLess').onclick = () => adjustRest(-15); $('restMore').onclick = () => adjustRest(15);
   $('panelToggle').onclick = () => setFocus(!document.querySelector('.app').classList.contains('focus'));
-  let wasReady = false, lastChime = -1e9, viewBadSince = null, viewTold = false, alertOn = false, alertBad = null, alertOk = null, alertText = '', alertAt = 0;
+  let wasReady = false, lastChime = -1e9, viewBadSince = null, told = {}, toldAny = false, alertOn = false, alertBad = null, alertOk = null, alertText = '', alertAt = 0;
   /* Between sets on a tracked lift: say how to get into position, and confirm when the lifter is there. */
   function renderReady() {
     const def = tracker.def, rdy = tracker.ready;
@@ -1245,23 +1402,40 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
       if (wasReady && clock() - lastChime > 4) { lastChime = clock(); beep(990, 0.12); }
       renderReady();
     }
+    // Each problem has a short line for the banner, a full sentence to speak, and a key so it is not repeated too often.
+    let key = '', spoken = '';
+    const raise = (k, banner, sentence) => { if (!problem) { key = k; problem = banner; spoken = sentence; } };
     if (def.manual) note.textContent = 'Counted by hand';
     else if (!lastM) problem = 'Step into view';
-    else { const miss = missing(def, lastM); if (miss.length) problem = `Step back: can't see your ${miss.join(' or ')}`; else note.textContent = `Tracking · ${lastM.view} view · best: ${def.view}` + (people > 1 ? ' · 2 people in view, following the lifter' : ''); }
+    else {
+      const miss = missing(def, lastM);
+      if (miss.length) {
+        const low = miss.some((x) => /hips|knees|ankles/.test(x)), high = miss.some((x) => /shoulders|elbows|wrists/.test(x)), what = miss.join(' or ');
+        if (low && lastM.cutBottom) raise('bottom', 'Your legs are out of the picture. Tilt the camera down or step back', `I can't see your ${what}. They are below the picture. Tilt the camera down, or step back.`);
+        else if (high && lastM.cutTop) raise('top', 'Your hands are out of the picture. Tilt the camera up or step back', `I can't see your ${what}. They are above the picture. Tilt the camera up, or step back.`);
+        else if (lastM.cutSide) raise('side', 'You are off the side of the picture. Move to the middle', `Part of you is off the side of the picture. Move to the middle.`);
+        else raise('hidden', `I can't see your ${what}`, `I can't see your ${what}. Something may be in the way, or try turning a little.`);
+      } else note.textContent = `Tracking · ${lastM.view} view · best: ${def.view}` + (people > 1 ? ' · 2 people in view, following the lifter' : '');
+    }
+    // Headroom: on overhead lifts the hands must still be in the picture at the top, or the camera cannot see the lockout.
+    if (lastM && def.headroom && lastM.reach != null && lastM.reach < 0 && tracker.ready && phase !== 'work')
+      raise('room', 'Your hands will leave the top of the picture. Tilt the camera up or step back', 'Your hands will go out of the top of the picture when you press. Tilt the camera up, or step back a little.');
     // Camera angle: ask for a better one before the set, never during it.
     if (!problem && lastM && def.views && !def.views.includes(lastM.view) && phase !== 'work' && !tracker.pending) {
       if (viewBadSince == null) viewBadSince = clock();
       if (clock() - viewBadSince > 2) {
-        problem = def.views[0] === 'front' ? 'Turn to face the camera' : 'Turn side-on to the camera';
-        if (!viewTold && running && !resting) { viewTold = true; say(`For ${def.name.toLowerCase()} I can see you best ${def.views[0] === 'front' ? 'from the front. Turn to face the camera.' : 'from the side. Turn side-on to the camera.'}`); }
+        const front = def.views[0] === 'front';
+        raise('view', front ? 'Turn to face the camera' : 'Turn side-on to the camera', `For ${def.name.toLowerCase()} I can see you best ${front ? 'from the front. Turn to face the camera.' : 'from the side. Turn side-on to the camera.'}`);
       }
-    } else viewBadSince = null;
+    } else if (key !== 'view') viewBadSince = null;
     if (problem) note.textContent = '';
     // The banner appears only when a problem has lasted over a second, and clears only after things have been fine for a moment.
+    // Framing problems are also spoken, so they can be fixed without walking to the screen: once, then again only if they persist.
     const want = !!problem && running && (!resting || r >= it.rest * 0.75), now = clock();
-    if (want) { alertOk = null; if (alertBad == null) alertBad = now; if (!alertOn && now - alertBad > 1.2) { alertOn = true; alertText = problem; alertAt = now; } }
-    else { alertBad = null; if (alertOk == null) alertOk = now; if (alertOn && now - alertOk > 0.6) alertOn = false; }
-    if (alertOn && want && problem !== alertText && now - alertAt > 1.5) { alertText = problem; alertAt = now; }
+    const announce = () => { if (key && phase !== 'work' && now - (told[key] || -1e9) > 45) { told[key] = now; toldAny = true; say(spoken); } };
+    if (want) { alertOk = null; if (alertBad == null) alertBad = now; if (!alertOn && now - alertBad > 1.2) { alertOn = true; alertText = problem; alertAt = now; announce(); } }
+    else { alertBad = null; if (alertOk == null) alertOk = now; if (alertOn && now - alertOk > 0.6) { alertOn = false; if (toldAny && lastM && phase !== 'work') { toldAny = false; say('Good. I can see you now.'); } } }
+    if (alertOn && want && problem !== alertText && now - alertAt > 1.5) { alertText = problem; alertAt = now; announce(); }
     alert.hidden = !alertOn; if (alertOn) alert.textContent = alertText;
     if ((alertOn ? alertText : '') !== lastAlertRec) { lastAlertRec = alertOn ? alertText : ''; recEvent('alert', { text: lastAlertRec }); }
     // Rest timer
@@ -1278,7 +1452,7 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
   function renderHud() {
     if (!sess) { $('nowEx').textContent = 'No workout running'; $('nowSub').textContent = ''; $('weightBox').hidden = true; setChip('idle', 'Idle'); $('repNum').textContent = '0'; $('repOf').textContent = ''; $('restCard').hidden = true; $('hint').textContent = ''; renderDots([]); return; }
     const it = item(), def = EX[it.id], range = it.lo === it.hi ? String(it.lo) : it.lo + '–' + it.hi, left = it.done.length < it.sets;
-    $('weightBox').hidden = false; $('unit').textContent = S.profile.units;
+    $('weightBox').hidden = false; showWeight();
     $('nowEx').textContent = def.name + (def.beta ? ' (beta)' : '');
     const n = Math.min(it.done.length + 1, it.sets);
     $('nowSub').textContent = left ? `Set ${n} of ${it.sets} · target ${range} reps` : `All ${it.sets} sets done`;
@@ -1291,6 +1465,8 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
       setChip('rest', 'Resting'); $('repLabel').textContent = 'last set'; $('repNum').textContent = lastSet ? lastSet.log.reps : 0; $('repOf').textContent = '';
       renderDots(lastSet ? lastSet.log.perRep.map((x) => (x.cues.length ? 'fix' : 'good')) : []);
       $('coachLine').textContent = coachMsg ? coachMsg.text : '';
+      document.querySelectorAll('#effortRow button').forEach((b) => b.setAttribute('aria-pressed', String(!!lastSet && lastSet.log.effort === b.dataset.e)));
+      $('effortRow').hidden = !lastSet;
       const w = curWeight();
       $('nextLine').textContent = left ? `Next: ${lastSet && lastSet.item !== it ? def.name + ' · ' : ''}set ${n} of ${it.sets} · ${w ? w + ' ' + S.profile.units + ' · ' : ''}${range} reps` : 'Last set done. Finish when you are ready.';
       if (def.manual) $('hint').textContent = 'Raise one hand to start'; else renderReady();
@@ -1409,15 +1585,16 @@ Reply with JSON only: {"readable": <true|false>, "total": <total weight includin
           L.con ? el('div', {}, el('b', {}, L.ecc.toFixed(1) + ' / ' + L.con.toFixed(1)), el('span', {}, 'down / up s')) : null,
           L.slow != null ? el('div', {}, el('b', {}, (L.slow > 0 ? '+' : '') + Math.round(L.slow * 100) + '%'), el('span', {}, 'last rep slower')) : null),
         el('div', { class: 'row' },
-          el('button', { class: 'btn small', onclick: () => { L.reps = Math.max(0, L.reps - 1); recEvent('repEdit', { to: L.reps }); reRender(); } }, '− rep'),
-          el('button', { class: 'btn small', onclick: () => { L.reps++; recEvent('repEdit', { to: L.reps }); reRender(); } }, '+ rep'),
+          el('button', { class: 'btn small', onclick: () => editReps(-1) }, '− rep'),
+          el('button', { class: 'btn small', onclick: () => editReps(1) }, '+ rep'),
           el('button', { class: 'btn small', onclick: () => { L.weight = curWeight(); L.weightSrc = 'entered'; reRender(); } }, 'Set weight to ' + (curWeight() || 0)),
           el('button', { class: 'btn small danger', id: 'redoPanel', onclick: redoLastSet }, 'Redo this set')),
         L.perRep.length ? el('div', { class: 'replist' }, L.perRep.map((r, i) => el('div', {}, el('span', {}, '#' + (i + 1)), el('span', {}, r.dur.toFixed(1) + ' s'), el('span', { class: r.cues.length ? 'f' : 'g' }, r.cues.join(', ') || 'clean')))) : null));
     }
     out.push(el('div', { class: 'row' },
       def.manual || !running ? el('button', { class: 'btn small', onclick: () => { const e = tracker.startManual(clock()); if (e) onEvents([e]); } }, 'Start set') : null,
-      el('button', { class: 'btn small', onclick: () => { recEvent('endNow', { by: 'button' }); const e = tracker.endNow(clock()); if (e) onEvents([e]); } }, 'End set now'),
+      el('button', { class: 'btn small', onclick: () => endOrExplain('button') }, 'End set now'),
+      el('button', { class: 'btn small', onclick: logByHand }, 'Log a set by hand'),
       el('span', { class: 'note' }, 'Space bar ends a set')));
     out.push(el('h3', {}, 'Today'));
     out.push(el('ol', { class: 'queue' }, sess.items.map((q, i) => el('li', { class: i === sess.idx ? 'current' : '' },
@@ -1567,6 +1744,10 @@ Reply with JSON only: {"found": [{"id": "<id>", "evidence": "<a few words on wha
         P.equipmentSet ? null : el('p', { class: 'note' }, 'These ticks are a guess. Tick what you actually have; bodyweight lifts are always available.'),
         el('div', { class: 'checks' }, Object.entries(EQUIP).map(([id, label]) => el('label', {}, el('input', { type: 'checkbox', id: 'eq-' + id, checked: P.equipment.includes(id), onchange: (e) => {
           P.equipment = e.target.checked ? [...P.equipment, id] : P.equipment.filter((x) => x !== id); P.equipmentSet = true; save(); renderPane(); } }), ' ' + label))),
+        P.equipment.includes('barbell') ? el('div', { class: 'grid2' },
+          field(`Bar weight (${P.units})`, el('input', bind(P, 'bar', { inputmode: 'decimal', oninput: (e) => { P.bar = parseFloat(e.target.value) || 45; save(); if (sess) showWeight(); } }))),
+          field('Plates you own, one pair of each', el('input', { id: 'f-plates', value: (P.plates || []).join(', '), placeholder: '10, 15, 25, 45', oninput: (e) => { P.plates = e.target.value.split(/[^0-9.]+/).map(Number).filter((x) => x > 0); save(); } }))) : null,
+        P.equipment.includes('barbell') ? el('p', { class: 'note' }, `Barbell lifts are entered as plates on one side. With these you can load: ${loadable().slice(0, 12).join(', ')}${loadable().length > 12 ? ' and up' : ''} ${P.units}.`) : null,
         el('p', { class: 'note' }, `${Object.keys(EX).filter((id) => EX[id].pattern && available(id, P.equipment)).length} of ${Object.keys(EX).filter((id) => EX[id].pattern).length} lifts available. Spotter only offers lifts you can do, and the Split tab can build a split from this list.`),
         el('div', { class: 'row' },
           el('button', { class: 'btn small', id: 'eqPhotoBtn', disabled: !T.apiKey || (eqScan && eqScan.busy), onclick: () => $('eqPhotos').click() }, eqScan && eqScan.busy ? 'Reading photos…' : 'Identify from photos'),
@@ -1604,6 +1785,7 @@ Reply with JSON only: {"found": [{"id": "<id>", "evidence": "<a few words on wha
       el('div', { class: 'grid2' },
         field('Voice', sel(T, 'voiceName', [['', 'Best available'], ...voices.map((v) => [v.name, v.name.replace(/Microsoft |Google /, '')])])),
         el('label', { class: 'field' }, 'Hear it', el('button', { class: 'btn', id: 'voiceTest', onclick: () => say('Nice work. Eight reps, and every one looked clean. Rest up.', true) }, 'Play a sample'))),
+      el('p', { class: 'note' }, 'Spotter version ' + BUILD + '.'),
       el('p', { class: 'note' }, 'Voices come from your browser and computer, and some sound far more natural than others. On a Mac, downloading a Premium or Enhanced voice (System Settings, Accessibility, Spoken Content) usually adds better ones to this list.')];
     queueMicrotask(async () => {
       try {
@@ -1618,14 +1800,18 @@ Reply with JSON only: {"found": [{"id": "<id>", "evidence": "<a few words on wha
     if (/INPUT|TEXTAREA|SELECT|BUTTON/.test(e.target.tagName) || !tracker) return;
     if (e.code === 'KeyF') { e.preventDefault(); flagOpen(); return; }
     if (e.code !== 'Space') return;
-    e.preventDefault(); recEvent('endNow', { by: 'key' }); const ev = tracker.endNow(clock()); if (ev) onEvents([ev]);
+    e.preventDefault(); endOrExplain('key');
   });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && running) navigator.wakeLock?.request('screen').catch(() => {}); });
 
   if (S.onboarded == null) S.onboarded = !S.example || S.history.length > 0 || !!S.draft;
+  if (!S.restsShortened) {      // splits built before rests were shortened: bring them to the 60 to 90 seconds asked for
+    for (const d of S.plan) for (const x of d.exercises) x.rest = x.rest === 150 ? 90 : (x.rest === 75 || (x.rest === 90 && x.lo >= 10)) ? 60 : x.rest;
+    S.restsShortened = true; save();
+  }
   if (S.draft) { sess = S.draft; selectItem(Math.min(sess.idx, sess.items.length - 1)); }
   renderGate(); renderHud(); renderPane(); recLoad();
-  Object.assign(hooks, { rec: () => rec || lastRec }, { state: () => ({ phase, sess, lastM, running, coachMsg, summary }), feed: onEvents, S });
+  Object.assign(hooks, { rec: () => rec || lastRec, weight: () => wTotal }, { state: () => ({ phase, sess, lastM, running, coachMsg, summary }), feed: onEvents, S });
 })();
 </script>
 </body>
